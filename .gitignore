@@ -1,0 +1,43 @@
+# Virtual environment
+.venv/
+venv/
+env/
+
+# Python bytecode
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+
+# Environment configuration (never commit secrets)
+.env
+.streamlit/secrets.toml
+
+# Model checkpoints (large binary files)
+checkpoints/*.pt
+checkpoints/*.pth
+saved_models/
+
+# Datasets (large, download separately)
+data/
+*.arrow
+*.parquet
+
+# Evaluation artifacts (regenerate with evaluate_models.py)
+confusion_matrix.png
+model_comparison_confusion_matrix.png
+training_validation_curves.png
+evaluation_report.json
+dataset_manifest.json
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# IDE files
+.idea/
+.vscode/
+*.swp
+
+# Jupyter checkpoints
+.ipynb_checkpoints/

@@ -1,10 +1,10 @@
 # 🌿 FloraSense AI — Indoor Plant Identification & Care
 
-An AI-powered application that identifies 20 common indoor plant species and provides
-verified botanical care guidance. Built with PyTorch transfer learning on the
+An AI-powered application that identifies 19 indoor plant classes and provides
+care references for 20 plants. Built with PyTorch transfer learning on the
 [House Plant Species dataset](https://huggingface.co/datasets/kakasher/house-plant-species).
 
-## Supported Species (20 Indoor Plants)
+## Plant-Care Catalog (20 Indoor Plants)
 
 | # | Plant | Scientific Name | Pet Safety |
 |---|-------|----------------|------------|
@@ -28,6 +28,8 @@ verified botanical care guidance. Built with PyTorch transfer learning on the
 | 18 | Tradescantia | Tradescantia spp. | ⚠️ Mildly toxic |
 | 19 | Venus Flytrap | Dionaea muscipula | ✅ Non-toxic |
 | 20 | ZZ Plant | Zamioculcas zamiifolia | ⚠️ Toxic to pets |
+
+The care catalog lists 20 plants, but the active image classifier currently recognizes 19. Rattlesnake Plant is not a separate model class yet.
 
 > **Dataset note:** Images sourced from Bing Images (non-expert curation). Label quality varies by class. Do not rely solely on this tool for safety decisions.
 
@@ -57,12 +59,25 @@ Download and prepare the House Plant Species dataset (14,790 images, CC BY 3.0):
 python download_real_dataset.py --data_dir ./data
 ```
 
-This downloads ~150 MB from Hugging Face, extracts and selects 20 indoor classes, and creates `data/train/`, `data/val/`, `data/test/` splits (70/15/15).
+This downloads ~150 MB from Hugging Face, extracts the configured indoor plant classes, and creates `data/train/`, `data/val/`, `data/test/` splits (70/15/15). Some configured classes may not have usable images in the archive.
 
 **If the download fails** (network restrictions, Hugging Face access):
 1. Go to https://huggingface.co/datasets/kakasher/house-plant-species
 2. Download `house_plant_species.tar` manually
 3. Run: `python download_real_dataset.py --tar_path ./house_plant_species.tar --skip_download`
+
+### Rattlesnake Plant model support
+
+The bundled archive's 315 Rattlesnake Plant images are exact duplicates of images already labeled Calathea. The class-preparation command checks for duplicates across existing splits and will refuse to add this class from the current archive:
+```powershell
+python download_real_dataset.py --data_dir ./data --tar_path ./house_plant_species.tar --add_class "Rattlesnake Plant"
+```
+
+To add this model class, first collect enough independently labeled Rattlesnake Plant images and place them in `data/train/Rattlesnake Plant/`, `data/val/Rattlesnake Plant/`, and `data/test/Rattlesnake Plant/`. Do not reuse Calathea images. The class becomes available only after both model architectures are retrained, because they share the same class mapping:
+```powershell
+python train_models.py --data_dir ./data --arch efficientnet_b0 --warmup_epochs 5 --finetune_epochs 15
+python train_models.py --data_dir ./data --arch mobilenet_v3_small --warmup_epochs 5 --finetune_epochs 15
+```
 
 ## Train the Models
 
@@ -121,7 +136,7 @@ License: CC BY 3.0
 
 ## Project Structure
 ```
-FloraSense-AI/
+FloraSense-AI (project folder)/
 ├── app.py                      # Streamlit web application
 ├── model.py                    # InferenceEngine (EfficientNet/MobileNet)
 ├── dataset.py                  # Dataset pipeline, transforms, class mappings

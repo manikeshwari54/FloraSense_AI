@@ -1,0 +1,33 @@
+{
+  "timestamp": "2026-10-18T09:39:01.336945",
+  "arch": "efficientnet_b0",
+  "num_classes": 19,
+  "class_names": [
+    "African Violet",
+    "Aloe Vera",
+    "Areca Palm",
+    "Boston Fern",
+    "Calathea",
+    "Chinese Evergreen",
+    "Dracaena",
+    "English Ivy",
+    "Jade Plant",
+    "Monstera Deliciosa",
+    "Orchid",
+    "Peace Lily",
+    "Pothos",
+    "Prayer Plant",
+    "Rubber Plant",
+    "Snake Plant",
+    "Tradescantia",
+    "Venus Flytrap",
+    "ZZ Plant"
+  ],
+  "best_acc": 0.8024564994882293,
+  "val_loss": 0.7308908771101992,
+  "val_top1": 0.8024564994882293,
+  "val_top3": 0.9375639713408394,
+  "is_demo_run": false,
+  "data_dir": "./data",
+  "status": "trained_production"
+}
