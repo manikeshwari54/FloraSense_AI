@@ -1,155 +1,153 @@
-# 🌿 FloraSense AI — Indoor Plant Identification & Care
+# FloraSense AI
 
-An AI-powered application that identifies 19 indoor plant classes and provides
-care references for 20 plants. Built with PyTorch transfer learning on the
-[House Plant Species dataset](https://huggingface.co/datasets/kakasher/house-plant-species).
+FloraSense AI is a local plant-photo classification and care-reference application. The Streamlit interface screens an image, runs a trained CNN checkpoint, presents ranked plant candidates, and can display care information from a local catalog.
 
-## Plant-Care Catalog (20 Indoor Plants)
+The original `checkpoints/` model still maps **19 plant classes** and remains unchanged. A separately trained EfficientNet-B0 is now available in `checkpoints_47/` with a verified 47-class mapping. The Streamlit model selector offers both checkpoints and defaults to the 47-class model when available. This is a constrained classifier, not a general botanical identifier, plant-disease diagnostic tool, or substitute for veterinary or medical advice.
 
-| # | Plant | Scientific Name | Pet Safety |
-|---|-------|----------------|------------|
-| 1 | African Violet | Streptocarpus ionanthus | ✅ Non-toxic |
-| 2 | Aloe Vera | Aloe vera | ⚠️ Toxic to pets |
-| 3 | Areca Palm | Dypsis lutescens | ✅ Non-toxic |
-| 4 | Boston Fern | Nephrolepis exaltata | ✅ Non-toxic |
-| 5 | Calathea | Goeppertia spp. | ✅ Non-toxic |
-| 6 | Chinese Evergreen | Aglaonema commutatum | ⚠️ Toxic to pets |
-| 7 | Dracaena | Dracaena spp. | ⚠️ Toxic to pets |
-| 8 | English Ivy | Hedera helix | ⚠️ Toxic to pets |
-| 9 | Jade Plant | Crassula ovata | ⚠️ Toxic to pets |
-| 10 | Monstera Deliciosa | Monstera deliciosa | ⚠️ Toxic to pets |
-| 11 | Orchid | Phalaenopsis spp. | ✅ Non-toxic |
-| 12 | Peace Lily | Spathiphyllum wallisii | ⚠️ Toxic to pets |
-| 13 | Pothos | Epipremnum aureum | ⚠️ Toxic to pets |
-| 14 | Prayer Plant | Maranta leuconeura | ✅ Non-toxic |
-| 15 | Rattlesnake Plant | Goeppertia lancifolia | ✅ Non-toxic |
-| 16 | Rubber Plant | Ficus elastica | ⚠️ Toxic to pets |
-| 17 | Snake Plant | Dracaena trifasciata | ⚠️ Toxic to pets |
-| 18 | Tradescantia | Tradescantia spp. | ⚠️ Mildly toxic |
-| 19 | Venus Flytrap | Dionaea muscipula | ✅ Non-toxic |
-| 20 | ZZ Plant | Zamioculcas zamiifolia | ⚠️ Toxic to pets |
+## Features
 
-The care catalog lists 20 plants, but the active image classifier currently recognizes 19. Rattlesnake Plant is not a separate model class yet.
+- Streamlit UI for image identification, searchable supported classes, checkpoint-specific model performance, and plant-care references.
+- EfficientNet-B0 · 47 classes is the default model; the original EfficientNet-B0 · 19 classes remains selectable as a fallback. Labels and class counts come from the selected checkpoint mapping.
+- Unavailable or incompatible checkpoints remain on disk for diagnostics but are excluded from normal model selection.
+- Image-quality screening and optional confidence/OOD-based uncertainty handling.
+- A local plant-care catalog. Care profiles are independent of model classes; unavailable species return a clear fallback instead of unrelated guidance.
+- Optional FastAPI service, training and evaluation scripts, dataset utilities, and pytest tests.
 
-> **Dataset note:** Images sourced from Bing Images (non-expert curation). Label quality varies by class. Do not rely solely on this tool for safety decisions.
+## Requirements and setup
 
-## Setup
+Use Python with the dependencies in `requirements.txt`. From PowerShell at the repository root:
 
-### Windows (local)
 ```powershell
-# Activate virtual environment
-.venv\Scripts\Activate.ps1  # PowerShell
-# Or bypass execution policy:
-powershell -ExecutionPolicy Bypass -File .venv\Scripts\Activate.ps1
-
-# Install dependencies
-pip install -r requirements.txt
+py -3.13 -m venv .venv
+.\.venv\Scripts\Activate.ps1
+python -m pip install --upgrade pip
+python -m pip install -r requirements.txt
 ```
 
-### Run the app
+If the workspace already has a `.venv`, activate and use it instead of recreating it.
+
+## Run the application
+
+Each selectable CNN needs its checkpoint and matching `class_mapping.json` under `checkpoints/` or `checkpoints_47/`. The app loads the mapping and preprocessing/OOD configuration from the selected checkpoint folder.
+
 ```powershell
 python -m streamlit run app.py
 ```
 
-## Download the Training Dataset
+Open the local URL printed by Streamlit (normally `http://localhost:8501`).
 
-Download and prepare the House Plant Species dataset (14,790 images, CC BY 3.0):
+The UI uses a local cream, forest-green, sage, and coral theme. It does not download fonts or send uploaded images to an external inference service. The Model Performance page reads saved reports from the selected checkpoint folder; it does not run evaluation during app startup.
+
+## Inference files and retained training assets
+
+The app needs a usable model weight file, its `class_mapping.json`, and its matching preprocessing and OOD configuration in the same checkpoint directory. Training metadata and evaluation reports are optional for inference, but populate the model-information and performance pages. The current 47-class report and confusion-matrix image remain in `checkpoints_47/`.
+
+The prepared `data/` and `data_47/` directories are not needed for ordinary Streamlit inference. They are intentionally retained for reproducibility, training, and evaluation. They can be archived outside the runtime project only after updating the paths passed to training, preparation, and evaluation scripts; no dataset or checkpoint files are removed by the app.
+
+## Image preprocessing
+
+Shared preprocessing functions are in `preprocessing/image_preprocessing.py`:
+
+- **Training:** random resized crop, horizontal flip, rotation, and color jitter, followed by tensor conversion and normalization.
+- **Validation, testing, and inference:** deterministic resize to 256, center crop to 224, tensor conversion, and ImageNet normalization.
+
+Random augmentation is only used for training. The resize/crop settings and ImageNet mean/std match `checkpoints/preprocessing_config.json`; changing these values can make input tensors incompatible with the saved model's expected preprocessing.
+
+## Run tests
 
 ```powershell
-python download_real_dataset.py --data_dir ./data
+python -m pytest tests/test_dataset.py tests/test_model.py -q
+python -m pytest -q
 ```
 
-This downloads ~150 MB from Hugging Face, extracts the configured indoor plant classes, and creates `data/train/`, `data/val/`, `data/test/` splits (70/15/15). Some configured classes may not have usable images in the archive.
+The tests use synthetic images for some checks. Passing tests validate code paths; they do not establish model accuracy.
 
-**If the download fails** (network restrictions, Hugging Face access):
-1. Go to https://huggingface.co/datasets/kakasher/house-plant-species
-2. Download `house_plant_species.tar` manually
-3. Run: `python download_real_dataset.py --tar_path ./house_plant_species.tar --skip_download`
+## Train and evaluate
 
-### Rattlesnake Plant model support
+The 47-class workflow uses separate `data_47/` and `checkpoints_47/` folders, preserving the existing `data/` and `checkpoints/` assets. In this workspace, preparation has already produced `data_47/`; skip the first command below unless starting with a clean output directory. The preparer refuses to overwrite a non-empty destination. The source archive is not downloaded by these commands:
 
-The bundled archive's 315 Rattlesnake Plant images are exact duplicates of images already labeled Calathea. The class-preparation command checks for duplicates across existing splits and will refuse to add this class from the current archive:
 ```powershell
-python download_real_dataset.py --data_dir ./data --tar_path ./house_plant_species.tar --add_class "Rattlesnake Plant"
+python prepare_all_classes.py --archive .\house_plant_species.tar --output_dir .\data_47 --expected_classes 47 --min_images_per_class 10
+python train_models.py --arch efficientnet_b0 --data_dir .\data_47 --checkpoint_dir .\checkpoints_47 --warmup_epochs 2 --finetune_epochs 3 --batch_size 8 --patience 2 --force_cpu
 ```
 
-To add this model class, first collect enough independently labeled Rattlesnake Plant images and place them in `data/train/Rattlesnake Plant/`, `data/val/Rattlesnake Plant/`, and `data/test/Rattlesnake Plant/`. Do not reuse Calathea images. The class becomes available only after both model architectures are retrained, because they share the same class mapping:
+The archive preparer validates image decoding and dimensions, excludes exact decoded-pixel duplicates (including conflicting-label copies), reports class/image counts and invalid files, and creates seeded stratified train/validation/test directories. It refuses to overwrite a non-empty output folder. Training derives its class count and label mapping from those folders, saves the matching mapping/configuration/history/metadata, selects by validation performance, reloads the best checkpoint, then calibrates OOD thresholds using validation data only. The test set is reserved for evaluation. The completed 2-epoch warmup + 3-epoch fine-tuning run reached 77.93% validation top-1 and 91.13% validation top-3; these are validation metrics, not held-out test results. OOD thresholds were calibrated on all 2,198 validation images after reloading the best checkpoint.
+
+The script defaults to 5 warmup epochs and 15 fine-tuning epochs, batch size 32. Run `python train_models.py --help` to see all options. Add `--force_cpu` when CPU execution is explicitly desired; otherwise CUDA is used when available. CPU training on the full dataset can be lengthy. `--demo` uses synthetic solid-color images for a smoke test, not for model-quality claims; use a separate checkpoint directory for demo runs as well.
+
+Evaluate the saved CNN checkpoints using the test split:
+
 ```powershell
-python train_models.py --data_dir ./data --arch efficientnet_b0 --warmup_epochs 5 --finetune_epochs 15
-python train_models.py --data_dir ./data --arch mobilenet_v3_small --warmup_epochs 5 --finetune_epochs 15
+python evaluate_models.py --checkpoint_dir ./checkpoints --test_dir ./data/test --output evaluation_report.json
 ```
 
-## Train the Models
+After a successful 47-class training run, evaluate only its separate held-out test split:
 
-### EfficientNet-B0 (primary)
 ```powershell
-python train_models.py --data_dir ./data --arch efficientnet_b0 --warmup_epochs 5 --finetune_epochs 15
+python evaluate_models.py --checkpoint_dir .\checkpoints_47 --test_dir .\data_47\test --output .\checkpoints_47\evaluation_report.json
 ```
 
-### MobileNetV3-Small (lightweight)
+The completed 47-class held-out report on 2,198 test images records 76.84% top-1 accuracy, 90.99% top-3 accuracy, 76.21% macro-F1, and 76.73% weighted-F1. The Streamlit Model Performance page reads these saved metrics for the matching selected checkpoint. Full per-class precision/recall/F1/support and the labeled 47 x 47 confusion matrix are in `checkpoints_47/evaluation_report.json`; the plot is `checkpoints_47/efficientnet_b0_confusion_matrix.png`. These offline test metrics are not confidence scores for individual app predictions. The earlier scikit-learn `_cython_blas` Application Control denial did not reproduce during evaluation; no policy or package changes were made.
+
+Evaluation can overwrite report and plot outputs. Back them up or choose a separate output path if you need to retain existing results.
+
+## Existing evaluation report
+
+The repository's saved `evaluation_report.json` records EfficientNet-B0 results on 977 test images:
+
+| Metric | Saved value |
+|---|---:|
+| Top-1 accuracy | 81.88% |
+| Top-3 accuracy | 94.58% |
+| Macro-F1 | 81.49% |
+| Weighted-F1 | 81.67% |
+| Uncertain / false-rejection rate | 14.23% |
+
+These are existing artifact values, not a new benchmark run. The report does not contain a false-acceptance rate, and the hardware used for the latency measurement is not recorded. Dataset near-duplicate candidates also limit confidence that train/test samples are fully independent. Pothos is a known weak class in this report (recall 36.1%, F1 47.3%). See [PROJECT_DOCUMENTATION.md](PROJECT_DOCUMENTATION.md) for metric interpretation and repository caveats.
+
+## Dataset notes
+
+The prepared dataset is under `data/train/`, `data/val/`, and `data/test/`. The local archive scan verified 47 source class folders and 14,790 decodable image files; exact decoded-RGB duplicate detection found no duplicate groups in that scan. The dataset card states personal use only due to copyright considerations, despite a conflicting license badge/local metadata. Rights and per-image provenance have not been independently resolved. Keep data and derived artifacts local unless reuse and redistribution rights are clarified. The existing `data/` and `checkpoints/` remain the original 19-class assets.
+
+The saved audit reports possible near-duplicate images across splits. These are heuristic candidates and require review; they are not proof of leakage. Labels are not guaranteed to be botanically correct.
+
+Dataset preparation utilities can download data and write into their target directories. Review their options and use a separate destination before running them:
+
 ```powershell
-python train_models.py --data_dir ./data --arch mobilenet_v3_small --warmup_epochs 5 --finetune_epochs 15
+python download_real_dataset.py --help
+python audit_dataset.py --data_dir ./data --output dataset_audit_report.json
 ```
 
-### Demo mode (no real data — smoke test only, results not representative)
+For the verified archive layout, use `prepare_all_classes.py` as shown above rather than the older selected-class downloader.
+
+GBIF-collected images are candidate material only. They require human label/suitability review and provenance reconciliation before training.
+
+## Optional FastAPI service
+
+By default the API loads from `checkpoints/`. To select the separately trained 47-class checkpoint, set the backend environment variable before startup:
+
 ```powershell
-python train_models.py --demo --warmup_epochs 2 --finetune_epochs 3
+$env:FLORASENSE_CHECKPOINT_DIR = ".\checkpoints_47"
+python -m uvicorn backend.api:app --host 127.0.0.1 --port 8000
 ```
 
-## Google Colab
-See `FloraSense_Colab_Training.ipynb` for GPU training instructions.
+The interactive API documentation is available at `http://127.0.0.1:8000/docs` while the service is running. This service is separate from the Streamlit app.
 
-## Measured Benchmark Results
+## Repository map
 
-All metrics evaluated on **977 held-out real test photographs** across 19 trained indoor species from the `kakasher/house-plant-species` dataset.
+| Path | Purpose |
+|---|---|
+| `app.py` | Streamlit application |
+| `model.py` | CNN checkpoint loading and inference |
+| `preprocessing/` | Shared training and deterministic evaluation/inference transforms |
+| `dataset.py` | Taxonomy, dataset validation/loading, splits, and class weighting |
+| `prepare_all_classes.py` | Read-only TAR audit and stratified preparation of discovered classes |
+| `train_models.py` | EfficientNet-B0 and MobileNetV3-Small training |
+| `evaluate_models.py` | CNN checkpoint evaluation and report/plot generation |
+| `ood_detector.py` | Image-quality checks, confidence/OOD decisions, and threshold calibration |
+| `plant_data.py` | Local plant-care profiles and lookup helpers |
+| `backend/api.py` | Optional FastAPI service |
+| `checkpoints/` | CNN checkpoints, class mapping, preprocessing config, and metadata |
+| `tests/` | pytest suite |
 
-| Architecture | Top-1 Accuracy | Top-3 Accuracy | Macro F1 | Checkpoint Size | Latency (CPU) | False Rejection (OOD) |
-|---|---|---|---|---|---|---|
-| **EfficientNet-B0 (Primary)** | **81.88%** | **94.58%** | **81.49%** | 24.5 MB (4.03M params) | 21.2 ms/image | 14.23% |
-| **MobileNetV3-Small (Edge)** | Deferred / Training | - | - | 14.3 MB | ~11 ms/image | - |
-
-### Per-Class Test Performance (EfficientNet-B0)
-- **Top performers**: Venus Flytrap (F1: 90.6%), African Violet (F1: 92.6%), Boston Fern (F1: 90.9%), Orchid (F1: 90.7%), Rubber Plant (F1: 87.1%), Jade Plant (F1: 84.2%).
-- **Challenging foliage**: Pothos (F1: 47.3% — visual confusion with trailing Philodendron/Calathea patterns in web-scraped data).
-- **Confusion Matrix**: Saved as `efficientnet_b0_confusion_matrix.png`.
-- **Rejection & Safety**: Calibrated Helmholtz Energy threshold (`1.68`) and confidence threshold (`26.95%`) safely flag corrupt, blurry, and out-of-distribution non-plant images as `uncertain` or `unsuitable`.
-
-## Evaluate
-```powershell
-python evaluate_models.py --checkpoint_dir ./checkpoints --test_dir ./data/test
-```
-
-Generates `evaluation_report.json`, confusion matrices, and training curves.
-
-## Dataset Citation
-```
-Gregorizwicz, K. (2024). House Plant Species Dataset.
-Hugging Face Datasets. https://huggingface.co/datasets/kakasher/house-plant-species
-License: CC BY 3.0
-```
-
-## Dataset Limitations
-- Images collected from Bing Images (not botanically verified)
-- Label quality varies by class — some images may be mislabelled
-- Only 20 of the 47 classes are used (outdoor/seasonal species excluded)
-- Model trained on this data should be used as a guide, not a definitive identification tool
-
-## Project Structure
-```
-FloraSense-AI (project folder)/
-├── app.py                      # Streamlit web application
-├── model.py                    # InferenceEngine (EfficientNet/MobileNet)
-├── dataset.py                  # Dataset pipeline, transforms, class mappings
-├── train_models.py             # Transfer learning training pipeline
-├── evaluate_models.py          # Evaluation metrics and confusion matrices
-├── ood_detector.py             # Out-of-distribution detection
-├── plant_data.py               # Botanical care database (20 species)
-├── download_real_dataset.py    # Dataset downloader from Hugging Face
-├── checkpoints/                # Saved model checkpoints + class mappings
-├── data/                       # Training data (created by download script)
-│   ├── train/
-│   ├── val/
-│   └── test/
-├── backend/api.py              # FastAPI REST backend
-└── tests/                      # pytest test suite
-```
+See [PROJECT_DOCUMENTATION.md](PROJECT_DOCUMENTATION.md) for the detailed architecture, dataset and model caveats, setup notes, and existing artifact analysis.

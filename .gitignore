@@ -20,6 +20,10 @@ saved_models/
 
 # Datasets (large, download separately)
 data/
+data_47/
+data_gbif_smoke/
+data_gbif_staging/
+house_plant_species.tar
 *.arrow
 *.parquet
 

@@ -10,6 +10,7 @@
   --muted: #6f7d72;
   --line: #dce4da;
   --ochre: #a77845;
+  --coral: #bd7567;
   --warning-bg: #fff5e9;
   --warning-line: #e7c99e;
   --safe-bg: #edf5ed;
@@ -22,7 +23,7 @@
   font-family: "Aptos", "Segoe UI", sans-serif;
 }
 
- .stApp header[data-testid="stHeader"] {
+.stApp header[data-testid="stHeader"] {
   background: var(--cream);
 }
 
@@ -146,6 +147,14 @@
 }
 
 .stMainBlockContainer [data-testid="stMarkdownContainer"] h1 {
+  color: var(--forest-deep);
+  font-family: Georgia, "Times New Roman", serif;
+  font-weight: 500;
+}
+
+.stMainBlockContainer [data-testid="stMarkdownContainer"] h2,
+.stMainBlockContainer [data-testid="stMarkdownContainer"] h3,
+.stMainBlockContainer [data-testid="stMarkdownContainer"] h4 {
   color: var(--forest-deep);
   font-family: Georgia, "Times New Roman", serif;
   font-weight: 500;
@@ -277,6 +286,38 @@
   box-shadow: 0 0 0 0.16rem rgba(83, 119, 83, 0.2);
 }
 
+.stButton > button:focus-visible,
+[data-testid="stFileUploader"] button:focus-visible,
+[data-testid="stSidebar"] input:focus-visible {
+  outline: 2px solid var(--coral);
+  outline-offset: 2px;
+}
+
+[data-testid="stMetric"] {
+  min-height: 5.5rem;
+}
+
+[data-testid="stMetricLabel"] {
+  color: var(--muted);
+}
+
+[data-testid="stMetricValue"] {
+  color: var(--forest-deep);
+  font-family: Georgia, "Times New Roman", serif;
+}
+
+[data-testid="stDataFrame"] {
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  overflow: hidden;
+}
+
+[data-testid="stExpander"] {
+  border-color: var(--line);
+  border-radius: 8px;
+  background: rgba(255, 254, 250, 0.7);
+}
+
 [data-testid="stVerticalBlockBorderWrapper"] {
   border-color: var(--line);
   border-radius: 9px;
@@ -348,7 +389,7 @@
 
 .card-index {
   margin-bottom: 0.45rem;
-  color: var(--ochre);
+  color: var(--coral);
   font-size: 0.72rem;
   font-weight: 700;
   letter-spacing: 0.08em;

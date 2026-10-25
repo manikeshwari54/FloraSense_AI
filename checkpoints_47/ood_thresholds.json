@@ -1,0 +1,10 @@
+{
+  "is_calibrated": true,
+  "temperature": 1.35,
+  "energy_threshold": 0.97,
+  "confidence_threshold": 0.2652,
+  "margin_threshold": 0.104,
+  "calibration_samples": 2198,
+  "correct_samples": 1713,
+  "margin_calibration_samples": 1713
+}

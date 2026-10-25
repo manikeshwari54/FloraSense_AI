@@ -2,11 +2,14 @@ import pytest
 import numpy as np
 from PIL import Image
 import torch
+import torch.nn as nn
+from torch.utils.data import DataLoader, TensorDataset
 from ood_detector import (
     check_image_quality,
     compute_energy_score,
     calibrate_and_filter,
-    load_thresholds
+    load_thresholds,
+    calibrate_thresholds_on_validation,
 )
 
 def test_quality_ok_noisy_image(sample_plant_image):
@@ -57,3 +60,48 @@ def test_load_thresholds_defaults():
     assert "conf_thresh" in t
     assert isinstance(t["energy_thresh"], float)
     assert isinstance(t["conf_thresh"], float)
+
+def test_calibrated_thresholds_load_from_checkpoint_config(tmp_path):
+    class FixedLogitModel(nn.Module):
+        def forward(self, images):
+            logits = torch.zeros((images.shape[0], 47))
+            logits[:, 0] = 5.0
+            logits[:, 1] = 4.0
+            return logits
+
+    loader = DataLoader(
+        TensorDataset(torch.zeros((4, 3, 8, 8)), torch.zeros(4, dtype=torch.long)),
+        batch_size=2,
+    )
+    config_path = tmp_path / "ood_thresholds.json"
+    result = calibrate_thresholds_on_validation(
+        FixedLogitModel(),
+        loader,
+        device=torch.device("cpu"),
+        save_path=str(config_path),
+        temperature=1.2,
+    )
+    loaded = load_thresholds(str(config_path))
+
+    assert result["calibration_samples"] == 4
+    assert result["margin_calibration_samples"] == 4
+    assert result["margin_threshold"] > 0
+    assert loaded["energy_thresh"] == result["energy_threshold"]
+    assert loaded["temperature"] == 1.2
+    assert loaded["margin_thresh"] == result["margin_threshold"]
+
+def test_calibrate_and_filter_uses_top_two_margin():
+    predictions = [
+        {"common_name": "Plant A", "scientific_name": "Plant A", "confidence": 0.8, "score_pct": 80.0},
+        {"common_name": "Plant B", "scientific_name": "Plant B", "confidence": 0.78, "score_pct": 78.0},
+    ]
+    result = calibrate_and_filter(
+        logits=torch.tensor([[10.0, 9.0]]),
+        predictions=predictions,
+        energy_thresh=-100.0,
+        conf_thresh=0.5,
+        margin_thresh=0.05,
+    )
+
+    assert result["status"] == "uncertain"
+    assert result["reason"] == "low_confidence_or_ambiguous"

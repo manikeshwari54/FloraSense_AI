@@ -29,14 +29,21 @@ import torchvision.models as models
 
 from dataset import (
     get_class_mappings,
-    get_data_transforms,
     PlantImageFolderDataset,
     compute_class_weights,
     create_real_splits,
     create_synthetic_demo_splits,
     check_neem_tulsi_coverage,
+)
+from preprocessing import (
+    CROP_SIZE,
     IMAGENET_MEAN,
-    IMAGENET_STD
+    IMAGENET_STD,
+    INPUT_SIZE,
+    INTERPOLATION,
+    RESIZE_SIZE,
+    create_evaluation_transform,
+    create_training_transform,
 )
 from ood_detector import calibrate_thresholds_on_validation
 
@@ -128,7 +135,8 @@ def evaluate_metrics(model, dataloader, criterion, device):
 
 def train_phase(
     model, train_loader, val_loader, criterion, optimizer, scheduler,
-    epochs, device, arch, phase_name, checkpoint_dir, best_acc=0.0, patience=5
+    epochs, device, arch, phase_name, checkpoint_dir, best_acc=0.0, patience=5,
+    progress_path=None, progress_state=None, history_key=None
 ):
     history = []
     print(f"\n--- Starting {phase_name} ({epochs} epochs) ---")
@@ -179,10 +187,19 @@ def train_phase(
             "val_top3": val_top3
         }
         history.append(record)
+        if progress_path and progress_state is not None and history_key:
+            progress_state[history_key] = history
+            progress_state["best_acc"] = best_acc
+            temporary_path = f"{progress_path}.tmp"
+            with open(temporary_path, "w", encoding="utf-8") as progress_file:
+                json.dump(progress_state, progress_file, indent=2)
+            os.replace(temporary_path, progress_path)
 
         if val_top1 > best_acc:
             best_acc = val_top1
             patience_counter = 0
+            if progress_path and progress_state is not None:
+                progress_state["best_acc"] = best_acc
             checkpoint_path = os.path.join(checkpoint_dir, f"{arch}_best.pt")
             torch.save({
                 "arch": arch,
@@ -195,6 +212,11 @@ def train_phase(
                 "val_top3": val_top3
             }, checkpoint_path)
             print(f"  --> Saved new best checkpoint to '{checkpoint_path}' (Val Top-1: {best_acc*100:.1f}%)")
+            if progress_path and progress_state is not None and history_key:
+                temporary_path = f"{progress_path}.tmp"
+                with open(temporary_path, "w", encoding="utf-8") as progress_file:
+                    json.dump(progress_state, progress_file, indent=2)
+                os.replace(temporary_path, progress_path)
         else:
             patience_counter += 1
             if patience_counter >= patience and epoch > 3:
@@ -227,6 +249,14 @@ def run_training_pipeline(args):
         print("[WARNING] This verifies code execution only. Do NOT use for accuracy claims.\n")
         train_samples, val_samples, test_samples, ood_samples, manifest = create_synthetic_demo_splits()
         class_names = manifest["class_names"]
+        split_rep = {
+            "mode": "synthetic_demo",
+            "train_count": len(train_samples),
+            "val_count": len(val_samples),
+            "test_count": len(test_samples),
+            "class_names": class_names,
+            "is_synthetic_demo": True,
+        }
         is_demo_run = True
     else:
         if not os.path.exists(args.data_dir):
@@ -251,6 +281,10 @@ def run_training_pipeline(args):
 
     num_classes = len(class_names)
     names, id2label, label2id = get_class_mappings(class_names)
+    if not train_samples or not val_samples or not test_samples:
+        raise ValueError("Training, validation, and test splits must all contain real samples.")
+    if sorted(set(label for _, label in train_samples + val_samples + test_samples)) != list(range(num_classes)):
+        raise ValueError("Dataset labels do not match the contiguous class mapping.")
 
     # Coverage Audit for Tulsi and Neem
     coverage = check_neem_tulsi_coverage(class_names)
@@ -264,22 +298,44 @@ def run_training_pipeline(args):
 
     # Save Class Mapping (ensures strict synchronization between checkpoint and labels)
     mapping_file = os.path.join(args.checkpoint_dir, "class_mapping.json")
+    checkpoint_path = os.path.join(args.checkpoint_dir, f"{args.arch}_best.pt")
+    existing_mapping = None
+    if args.resume and os.path.exists(checkpoint_path):
+        if not os.path.exists(mapping_file):
+            raise FileNotFoundError(
+                f"Cannot safely resume without the matching class mapping: '{mapping_file}'"
+            )
+        with open(mapping_file, "r", encoding="utf-8") as mapping_file_handle:
+            existing_mapping = json.load(mapping_file_handle)
+        existing_names = [
+            existing_mapping.get("id2label", {}).get(str(index))
+            for index in range(num_classes)
+        ]
+        if existing_names != class_names:
+            raise ValueError(
+                "Cannot resume: checkpoint class mapping differs from the current dataset mapping."
+            )
     with open(mapping_file, "w", encoding="utf-8") as f:
         json.dump({"id2label": id2label, "label2id": label2id}, f, indent=2)
+
+    audit_file = os.path.join(args.checkpoint_dir, "dataset_audit_report.json")
+    with open(audit_file, "w", encoding="utf-8") as f:
+        json.dump(split_rep, f, indent=2)
 
     # Save Preprocessing Configuration
     prep_file = os.path.join(args.checkpoint_dir, "preprocessing_config.json")
     with open(prep_file, "w", encoding="utf-8") as f:
         json.dump({
-            "input_size": [224, 224],
-            "crop_size": 224,
-            "resize_size": 256,
-            "interpolation": "bilinear",
+            "input_size": list(INPUT_SIZE),
+            "crop_size": CROP_SIZE,
+            "resize_size": RESIZE_SIZE,
+            "interpolation": INTERPOLATION.value,
             "mean": IMAGENET_MEAN,
             "std": IMAGENET_STD
         }, f, indent=2)
 
-    train_transform, val_transform = get_data_transforms()
+    train_transform = create_training_transform()
+    val_transform = create_evaluation_transform()
     train_dataset = PlantImageFolderDataset(train_samples, transform=train_transform)
     val_dataset = PlantImageFolderDataset(val_samples, transform=val_transform)
 
@@ -293,13 +349,16 @@ def run_training_pipeline(args):
     model = build_model(args.arch, num_classes=num_classes, pretrained=True).to(device)
 
     best_acc = 0.0
+    progress_path = os.path.join(args.checkpoint_dir, f"{args.arch}_history.json")
+    progress_state = {"phase1": [], "phase2": [], "best_acc": best_acc}
 
     # Resume checkpoint if requested
     if args.resume:
-        checkpoint_path = os.path.join(args.checkpoint_dir, f"{args.arch}_best.pt")
         if os.path.exists(checkpoint_path):
             print(f"Resuming from checkpoint '{checkpoint_path}'...")
             ckpt = torch.load(checkpoint_path, map_location=device)
+            if ckpt.get("arch") != args.arch:
+                raise ValueError("Cannot resume from a checkpoint with a different architecture.")
             model.load_state_dict(ckpt["model_state_dict"])
             best_acc = ckpt.get("best_acc", 0.0)
             print(f"Resumed with previous best accuracy: {best_acc*100:.1f}%")
@@ -317,7 +376,9 @@ def run_training_pipeline(args):
             model, train_loader, val_loader, criterion, optimizer_head, scheduler_head,
             epochs=args.warmup_epochs, device=device, arch=args.arch,
             phase_name="Phase 1 (Head Warmup)", checkpoint_dir=args.checkpoint_dir,
-            best_acc=best_acc, patience=args.patience
+            best_acc=best_acc, patience=args.patience,
+            progress_path=progress_path, progress_state=progress_state,
+            history_key="phase1"
         )
     else:
         history_phase1 = []
@@ -345,10 +406,24 @@ def run_training_pipeline(args):
             model, train_loader, val_loader, criterion, optimizer_ft, scheduler_ft,
             epochs=args.finetune_epochs, device=device, arch=args.arch,
             phase_name="Phase 2 (Backbone Fine-Tuning)", checkpoint_dir=args.checkpoint_dir,
-            best_acc=best_acc, patience=args.patience
+            best_acc=best_acc, patience=args.patience,
+            progress_path=progress_path, progress_state=progress_state,
+            history_key="phase2"
         )
     else:
         history_phase2 = []
+
+    if not os.path.exists(checkpoint_path):
+        raise RuntimeError(
+            "Training did not produce a best-validation checkpoint. "
+            "Check that at least one training phase ran and validation completed."
+        )
+    best_checkpoint = torch.load(checkpoint_path, map_location=device)
+    if best_checkpoint.get("arch") != args.arch:
+        raise ValueError("Saved best checkpoint architecture does not match the training run.")
+    model.load_state_dict(best_checkpoint["model_state_dict"])
+    model.eval()
+    best_acc = float(best_checkpoint["best_acc"])
 
     # Save Training History and Metadata
     history_file = os.path.join(args.checkpoint_dir, f"{args.arch}_history.json")
@@ -367,19 +442,20 @@ def run_training_pipeline(args):
             "best_acc": best_acc,
             "is_demo_run": is_demo_run,
             "data_dir": args.data_dir if not is_demo_run else "synthetic_demo",
+            "train_samples": len(train_samples),
+            "validation_samples": len(val_samples),
+            "test_samples": len(test_samples),
+            "test_used_for_model_selection": False,
+            "test_used_for_ood_calibration": False,
             "warmup_epochs": args.warmup_epochs,
             "finetune_epochs": args.finetune_epochs
         }, f, indent=2)
 
-    # Calibrate OOD threshold on validation loader
-    try:
-        calibrate_thresholds_on_validation(
-            model, val_loader, device=device,
-            save_path=os.path.join(args.checkpoint_dir, "ood_thresholds.json")
-        )
-        print("[OOD Engine] Empirical rejection thresholds calibrated on validation set.")
-    except Exception as e:
-        print(f"[OOD Engine Notice] Could not calibrate OOD thresholds: {e}")
+    calibrate_thresholds_on_validation(
+        model, val_loader, device=device,
+        save_path=os.path.join(args.checkpoint_dir, "ood_thresholds.json")
+    )
+    print("[OOD Engine] Thresholds calibrated from the validation split using the reloaded best checkpoint.")
 
     print(f"\nTraining completed for {args.arch.upper()}! Best Validation Top-1: {best_acc*100:.1f}%\n")
     return model, best_acc
@@ -387,14 +463,14 @@ def run_training_pipeline(args):
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="FloraSense AI Transfer Learning Training")
     parser.add_argument("--arch", type=str, default="efficientnet_b0", choices=["efficientnet_b0", "mobilenet_v3_small"])
-    parser.add_argument("--data_dir", type=str, default="./data", help="Path to genuine dataset directory")
+    parser.add_argument("--data_dir", type=str, default="./data_47", help="Path to genuine dataset directory")
     parser.add_argument("--demo", action="store_true", help="Run demonstration smoke-test with synthetic data")
     parser.add_argument("--warmup_epochs", type=int, default=5, help="Classifier warmup epochs")
     parser.add_argument("--finetune_epochs", type=int, default=15, help="Fine-tuning epochs")
     parser.add_argument("--batch_size", type=int, default=32, help="Batch size")
     parser.add_argument("--head_lr", type=float, default=5e-4, help="Classifier head learning rate")
     parser.add_argument("--backbone_lr", type=float, default=1e-5, help="Backbone learning rate")
-    parser.add_argument("--checkpoint_dir", type=str, default="./checkpoints", help="Save directory")
+    parser.add_argument("--checkpoint_dir", type=str, default="./checkpoints_47", help="Save directory")
     parser.add_argument("--force_cpu", action="store_true", help="Force CPU")
     parser.add_argument("--resume", action="store_true", help="Resume from checkpoint")
     parser.add_argument("--seed", type=int, default=42, help="Random seed")

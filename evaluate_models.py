@@ -25,7 +25,7 @@ from sklearn.metrics import classification_report, confusion_matrix
 from PIL import Image
 
 from model import InferenceEngine, resolve_species_metadata
-from dataset import validate_and_load_real_dataset, get_class_mappings
+from dataset import validate_and_load_real_dataset
 from ood_detector import calibrate_and_filter, load_thresholds
 
 if sys.stdout.encoding and sys.stdout.encoding.lower() != 'utf-8':
@@ -74,17 +74,7 @@ def run_evaluation_suite(
             print(f"  - {m['arch']}: Exists={m['checkpoint_exists']}, Usable={m['is_usable']}, Error={m['error']}")
         sys.exit(1)
 
-    has_real_test_data = os.path.exists(test_dir)
-    real_test_samples = []
-    test_classes = []
-
-    if has_real_test_data:
-        try:
-            real_test_samples, test_classes, _ = validate_and_load_real_dataset(test_dir, min_images_per_class=1)
-            print(f"[Dataset] Found {len(real_test_samples)} genuine test photographs across {len(test_classes)} classes.\n")
-        except Exception as e:
-            print(f"[Dataset Notice] Could not load '{test_dir}': {e}\n")
-            has_real_test_data = False
+    has_real_test_data = os.path.isdir(test_dir)
 
     if not has_real_test_data:
         print("[NOTICE] No real test image folder found at './data/test'.")
@@ -110,6 +100,7 @@ def run_evaluation_suite(
 
         model_res = {
             "arch": arch,
+            "device": str(engine.device),
             "total_params_m": round(total_params / 1e6, 2),
             "model_size_mb": round(file_size_mb, 2),
             "avg_latency_ms": round(latency_ms, 2),
@@ -124,10 +115,33 @@ def run_evaluation_suite(
 
         print(f"  Parameters:        {model_res['total_params_m']}M")
         print(f"  Model Size:        {model_res['model_size_mb']} MB")
-        print(f"  Inference Latency: {model_res['avg_latency_ms']} ms/image (CPU)")
+        print(f"  Inference Latency: {model_res['avg_latency_ms']} ms/image ({engine.device})")
         print(f"  Trained Classes:   {model_res['num_classes']}")
 
-        if has_real_test_data and real_test_samples:
+        if has_real_test_data:
+            real_test_samples, _, dataset_report = validate_and_load_real_dataset(
+                test_dir,
+                min_images_per_class=1,
+                class_names=engine.class_names,
+            )
+            print(
+                f"[Dataset] Found {len(real_test_samples)} valid unique test images "
+                f"across {len(engine.class_names)} mapped classes; "
+                f"excluded {dataset_report['duplicates_detected']} duplicates and "
+                f"{dataset_report['invalid_file_count']} invalid files."
+            )
+            missing_test_classes = [
+                class_name
+                for class_name, count in dataset_report["class_counts"].items()
+                if count < 1
+            ]
+            if missing_test_classes:
+                raise ValueError(
+                    "The held-out test set is missing mapped classes: "
+                    + ", ".join(missing_test_classes)
+                )
+            if not real_test_samples:
+                raise ValueError(f"No valid test images were found under '{test_dir}'.")
             y_true = []
             y_pred = []
             top3_correct = 0
@@ -149,7 +163,9 @@ def run_evaluation_suite(
                     logits=logits,
                     predictions=preds,
                     energy_thresh=thresholds["energy_thresh"],
-                    conf_thresh=thresholds["conf_thresh"]
+                    conf_thresh=thresholds["conf_thresh"],
+                    margin_thresh=thresholds["margin_thresh"],
+                    temperature=thresholds["temperature"],
                 )
                 if decision["status"] == "uncertain":
                     rejected_count += 1
@@ -162,19 +178,28 @@ def run_evaluation_suite(
             # Classification report & Macro F1
             target_names = [engine.id2label.get(i, f"Class_{i}") for i in range(engine.num_classes)]
             cls_report = classification_report(
-                y_true, y_pred, target_names=target_names, output_dict=True, zero_division=0
+                y_true,
+                y_pred,
+                labels=list(range(engine.num_classes)),
+                target_names=target_names,
+                output_dict=True,
+                zero_division=0,
             )
 
             macro_f1 = cls_report["macro avg"]["f1-score"] * 100
+            weighted_f1 = cls_report["weighted avg"]["f1-score"] * 100
             model_res["top1_acc"] = round(top1_acc * 100, 2)
             model_res["top3_acc"] = round(top3_acc * 100, 2)
             model_res["macro_f1"] = round(macro_f1, 2)
+            model_res["weighted_f1"] = round(weighted_f1, 2)
             model_res["false_rejection_rate_pct"] = round(frr, 2)
             model_res["classification_report"] = cls_report
+            model_res["dataset_report"] = dataset_report
 
             print(f"  Top-1 Accuracy:    {model_res['top1_acc']}%")
             print(f"  Top-3 Accuracy:    {model_res['top3_acc']}%")
             print(f"  Macro F1-Score:    {model_res['macro_f1']}%")
+            print(f"  Weighted F1-Score: {model_res['weighted_f1']}%")
             print(f"  False Rejection:   {model_res['false_rejection_rate_pct']}%")
 
             # Save per-class summary and confusion matrix
@@ -188,8 +213,16 @@ def run_evaluation_suite(
                 print(f"    {c_name:22s} | P: {p:5.1f}% | R: {r:5.1f}% | F1: {f:5.1f}% | Support: {sup}")
 
             cm = confusion_matrix(y_true, y_pred, labels=list(range(engine.num_classes)))
-            plt.figure(figsize=(14, 12))
-            sns.heatmap(cm, annot=True, fmt="d", cmap="Greens",
+            model_res["confusion_matrix"] = {
+                "labels": target_names,
+                "matrix": cm.tolist(),
+            }
+            figure_size = (
+                max(14, 0.45 * engine.num_classes),
+                max(12, 0.40 * engine.num_classes),
+            )
+            plt.figure(figsize=figure_size)
+            sns.heatmap(cm, annot=engine.num_classes <= 20, fmt="d", cmap="Greens",
                         xticklabels=target_names, yticklabels=target_names)
             plt.title(f"{arch.upper()} Confusion Matrix (Real Held-Out Test Set)")
             plt.xlabel("Predicted Label")
@@ -197,7 +230,8 @@ def run_evaluation_suite(
             plt.xticks(rotation=45, ha="right")
             plt.yticks(rotation=0)
             plt.tight_layout()
-            cm_path = f"{arch}_confusion_matrix.png"
+            output_dir = os.path.dirname(os.path.abspath(output_report))
+            cm_path = os.path.join(output_dir, f"{arch}_confusion_matrix.png")
             plt.savefig(cm_path, dpi=200)
             plt.close()
             print(f"  [Artifact] Saved confusion matrix to '{cm_path}'.")
@@ -238,7 +272,10 @@ def run_evaluation_suite(
         axes[1].grid(True, linestyle="--", alpha=0.6)
 
         plt.tight_layout()
-        curves_path = "training_validation_curves.png"
+        curves_path = os.path.join(
+            os.path.dirname(os.path.abspath(output_report)),
+            "training_validation_curves.png",
+        )
         plt.savefig(curves_path, dpi=200)
         plt.close()
         print(f"[Artifact] Saved training curves to '{curves_path}'.")

@@ -27,8 +27,7 @@ BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 if BASE_DIR not in sys.path:
     sys.path.insert(0, BASE_DIR)
 
-from dataset import SPECIES_TAXONOMY, get_class_mappings
-from model import InferenceEngine, load_inference_engine
+from model import InferenceEngine, load_inference_engine, resolve_species_metadata
 from ood_detector import check_image_quality, calibrate_and_filter, load_thresholds
 from plant_data import get_plant_profile, PLANT_DATA
 
@@ -37,8 +36,8 @@ from plant_data import get_plant_profile, PLANT_DATA
 # -------------------------------------------------------------
 app = FastAPI(
     title="FloraSense AI API",
-    description="Indoor Plant Identification & Care Assistant — 20 species, OOD rejection, EfficientNet transfer learning",
-    version="3.0.0"
+    description="Indoor plant identification using the class mapping attached to the selected checkpoint.",
+    version="4.0.0"
 )
 
 app.add_middleware(
@@ -54,6 +53,8 @@ app.add_middleware(
 # -------------------------------------------------------------
 class PredictionCandidate(BaseModel):
     rank: int
+    class_index: int
+    raw_label: str
     common_name: str
     scientific_name: str
     confidence: float
@@ -85,7 +86,13 @@ class ModelManager:
     def __init__(self):
         self.device = "CPU"
         self.engines: Dict[str, InferenceEngine] = {}
-        checkpoint_dir = os.path.join(BASE_DIR, "checkpoints")
+        configured_dir = os.environ.get("FLORASENSE_CHECKPOINT_DIR", "checkpoints")
+        checkpoint_dir = (
+            configured_dir
+            if os.path.isabs(configured_dir)
+            else os.path.join(BASE_DIR, configured_dir)
+        )
+        self.checkpoint_dir = checkpoint_dir
 
         # Load available CNN engines
         for arch in ["efficientnet_b0", "mobilenet_v3_small"]:
@@ -93,7 +100,14 @@ class ModelManager:
             if eng is not None:
                 self.engines[arch] = eng
 
-        self.num_classes = max((eng.num_classes for eng in self.engines.values()), default=len(SPECIES_TAXONOMY))
+        self.num_classes = max((eng.num_classes for eng in self.engines.values()), default=0)
+        if self.engines:
+            self.device = next(iter(self.engines.values())).get_info()["device"]
+
+    def get_active_engine(self):
+        if "efficientnet_b0" in self.engines:
+            return self.engines["efficientnet_b0"]
+        return next(iter(self.engines.values()), None)
 
     @classmethod
     def get_instance(cls):
@@ -108,28 +122,38 @@ class ModelManager:
 def health_check():
     manager = ModelManager.get_instance()
     available = list(manager.engines.keys())
+    active_engine = manager.get_active_engine()
+    supported_species = active_engine.class_names if active_engine else []
 
     return {
-        "status": "healthy",
+        "status": "healthy" if available else "unavailable",
         "device": manager.device,
         "models_available": available,
         "active_baseline": "efficientnet_b0" if "efficientnet_b0" in manager.engines else (available[0] if available else "none"),
         "num_classes": manager.num_classes,
-        "supported_species": sorted(SPECIES_TAXONOMY.keys())
+        "supported_species": supported_species
     }
 
 @app.get("/api/v1/species")
 def list_species():
-    names, _, _ = get_class_mappings()
+    manager = ModelManager.get_instance()
+    engine = manager.get_active_engine()
+    if engine is None:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="No usable checkpoint is available.",
+        )
     return {
-        "total_classes": len(names),
+        "total_classes": engine.num_classes,
         "species": [
             {
-                "id": idx,
-                "name": name,
-                "taxonomy": SPECIES_TAXONOMY.get(name, {})
+                "id": index,
+                "name": label,
+                "common_name": resolve_species_metadata(label)[1],
+                "scientific_name": resolve_species_metadata(label)[0],
+                "care_available": get_plant_profile(label) is not None,
             }
-            for idx, name in enumerate(names)
+            for index, label in enumerate(engine.class_names)
         ]
     }
 
@@ -148,8 +172,10 @@ async def identify_plant(
     file: UploadFile = File(...),
     arch: str = Query("efficientnet_b0", enum=["efficientnet_b0", "mobilenet_v3_small"]),
     top_k: int = Query(5, ge=1, le=5),
-    energy_thresh: float = Query(-25.0, description="Energy score threshold for OOD rejection"),
-    conf_thresh: float = Query(0.35, description="Confidence threshold for certainty"),
+    energy_thresh: Optional[float] = Query(None, description="Override the checkpoint energy threshold"),
+    conf_thresh: Optional[float] = Query(None, ge=0, le=1, description="Override the checkpoint confidence threshold"),
+    margin_thresh: Optional[float] = Query(None, ge=0, le=1, description="Override the checkpoint top-two margin threshold"),
+    temperature: Optional[float] = Query(None, gt=0, description="Override the checkpoint energy temperature"),
     enable_ood: bool = Query(True, description="Enable energy-based OOD rejection")
 ):
     if file.content_type not in ["image/jpeg", "image/png", "image/webp"]:
@@ -193,14 +219,19 @@ async def identify_plant(
             detail=f"Model architecture '{arch}' is not initialized or checkpoint is missing."
         )
 
+    thresholds = load_thresholds(
+        os.path.join(manager.checkpoint_dir, "ood_thresholds.json")
+    )
     logits, predictions = engine.predict(image, top_k=top_k)
 
     # Apply OOD and Confidence Decision Boundary
     decision = calibrate_and_filter(
         logits=logits,
         predictions=predictions,
-        energy_thresh=energy_thresh,
-        conf_thresh=conf_thresh,
+        energy_thresh=thresholds["energy_thresh"] if energy_thresh is None else energy_thresh,
+        conf_thresh=thresholds["conf_thresh"] if conf_thresh is None else conf_thresh,
+        margin_thresh=thresholds["margin_thresh"] if margin_thresh is None else margin_thresh,
+        temperature=thresholds["temperature"] if temperature is None else temperature,
         enable_ood=enable_ood
     )
 

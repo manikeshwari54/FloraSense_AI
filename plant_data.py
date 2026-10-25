@@ -1,7 +1,7 @@
-"""
-FloraSense AI - Botanical Knowledge Base
-Cross-referenced with Kew Plants of the World Online (POWO) and Royal Horticultural Society (RHS) Houseplant Growing Guides.
-Covers 20 indoor plant species for the FloraSense AI model.
+"""Static plant-care profiles and exact-name/alias lookup helpers.
+
+Profiles are optional reference data and are not generated from model labels.
+Unknown classes return no profile so callers can show an explicit fallback.
 """
 
 PLANT_DATA = {
@@ -1348,42 +1348,33 @@ PLANT_DATA = {
 def get_plant_profile(plant_name: str):
     """
     Looks up a plant profile by common name, scientific name, or alias.
-    Priority order:
-      1. Exact key match (case-insensitive)
-      2. Exact common_name or alias match (case-insensitive)
-      3. Substring: query is contained in a candidate string (not the reverse,
-         to avoid "snake" falsely matching "rattlesnake plant")
+    Dataset labels may include a parenthesized scientific name. The base name,
+    parenthesized name, profile key, common/scientific names, and explicit aliases
+    are matched exactly after case/whitespace normalization. Unknown names return
+    ``None`` instead of being assigned a potentially unrelated substring match.
     """
     if not plant_name:
         return None
-    normalized = plant_name.strip().lower()
+    normalized = " ".join(plant_name.replace("_", " ").strip().lower().split())
+    queries = {normalized}
+    if "(" in normalized and ")" in normalized:
+        base, scientific = normalized.split("(", 1)
+        queries.add(" ".join(base.strip().split()))
+        queries.add(" ".join(scientific.split(")", 1)[0].strip().split()))
 
-    # 1. Direct key lookup
-    for key, data in PLANT_DATA.items():
-        if key.lower() == normalized:
-            return data
-
-    # 2. Exact common_name / scientific_name / alias match
-    for key, data in PLANT_DATA.items():
-        candidates = [
-            data.get("common_name", "").lower(),
-            data.get("scientific_name", "").lower(),
-            key.lower()
-        ] + [a.lower() for a in data.get("aliases", [])]
-
-        if any(c == normalized for c in candidates if c):
-            return data
-
-    # 3. Substring fallback: the normalized query appears inside a candidate
-    #    (NOT c inside normalized — prevents shorter keys hitting longer entries)
     for key, data in PLANT_DATA.items():
         candidates = [
-            data.get("common_name", "").lower(),
-            data.get("scientific_name", "").lower(),
-            key.lower()
-        ] + [a.lower() for a in data.get("aliases", [])]
-
-        if any(c and normalized in c for c in candidates):
+            key,
+            data.get("common_name", ""),
+            data.get("scientific_name", ""),
+            *data.get("aliases", []),
+        ]
+        normalized_candidates = {
+            " ".join(candidate.replace("_", " ").strip().lower().split())
+            for candidate in candidates
+            if candidate
+        }
+        if queries & normalized_candidates:
             return data
 
     return None

@@ -1,10 +1,8 @@
-"""
-FloraSense AI — Indoor Plant Identification Engine
----------------------------------------------------
-Provides InferenceEngine: Production loader and predictor for trained CNN checkpoints
-(EfficientNet-B0, MobileNetV3-Small) bound to their specific class mappings.
-Trained on the House Plant Species dataset (kakasher/house-plant-species, CC BY 3.0).
-20 supported indoor plant classes.
+"""Inference engine for CNN checkpoints with checkpoint-specific class mappings.
+
+The output layer size and displayed labels are derived from each checkpoint's
+adjacent ``class_mapping.json``. The engine supports EfficientNet-B0 and
+MobileNetV3-Small checkpoints.
 """
 
 import os
@@ -16,9 +14,10 @@ from PIL import Image
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-from torchvision import transforms
 
-from dataset import SPECIES_TAXONOMY, IMAGENET_MEAN, IMAGENET_STD
+from dataset import SPECIES_TAXONOMY
+from preprocessing import create_evaluation_transform
+from plant_data import get_plant_profile
 
 if sys.stdout.encoding and sys.stdout.encoding.lower() != 'utf-8':
     try:
@@ -46,12 +45,20 @@ def resolve_species_metadata(label: str) -> Tuple[str, str]:
         meta = CANONICAL_ALIASES[norm_key]
         return meta["scientific_name"], meta["common_name"]
 
-    # 2. Check SPECIES_TAXONOMY
+    # 2. Check the canonical taxonomy.
     for key, tax in SPECIES_TAXONOMY.items():
         if key.lower() == norm_key:
             return tax["scientific_name"], tax["common_name"]
 
-    # 3. Parse parentheses if label is formatted like 'Common Name (Scientific Name)'
+    # 3. Reuse an existing care profile when the dataset label has an alias.
+    profile = get_plant_profile(clean)
+    if profile:
+        return (
+            profile.get("scientific_name", clean),
+            profile.get("common_name", clean),
+        )
+
+    # 4. Parse dataset labels formatted as 'Common Name (Scientific Name)'.
     if "(" in clean and ")" in clean:
         parts = clean.split("(")
         common = parts[0].strip()
@@ -97,18 +104,34 @@ class InferenceEngine:
             mapping_data = json.load(f)
 
         raw_id2label = mapping_data.get("id2label", {})
-        # Ensure integer keys
-        self.id2label = {int(k): v for k, v in raw_id2label.items()}
+        try:
+            self.id2label = {int(k): v for k, v in raw_id2label.items()}
+        except (TypeError, ValueError) as error:
+            raise ValueError("Checkpoint class mapping contains a non-integer output index.") from error
+        if not self.id2label or sorted(self.id2label) != list(range(len(self.id2label))):
+            raise ValueError("Checkpoint class mapping indices must be contiguous and start at zero.")
+        if any(not isinstance(label, str) or not label.strip() for label in self.id2label.values()):
+            raise ValueError("Checkpoint class mapping labels must be non-empty strings.")
+        if len(set(self.id2label.values())) != len(self.id2label):
+            raise ValueError("Checkpoint class mapping contains duplicate labels.")
         self.label2id = {v: k for k, v in self.id2label.items()}
+        raw_label2id = mapping_data.get("label2id")
+        if raw_label2id is not None:
+            normalized_label2id = {label: int(index) for label, index in raw_label2id.items()}
+            if normalized_label2id != self.label2id:
+                raise ValueError("Checkpoint class mapping id2label and label2id entries do not match.")
         self.class_names = [self.id2label[i] for i in range(len(self.id2label))]
         self.num_classes = len(self.class_names)
 
-        # Build model and load state dict
+        checkpoint = torch.load(checkpoint_path, map_location=self.device)
+        checkpoint_arch = checkpoint.get("arch") if isinstance(checkpoint, dict) else None
+        if checkpoint_arch is not None and checkpoint_arch != arch:
+            raise ValueError(
+                f"Checkpoint architecture '{checkpoint_arch}' does not match requested '{arch}'."
+            )
+        state_dict = checkpoint.get("model_state_dict", checkpoint)
         from train_models import build_model
         self.model = build_model(arch, num_classes=self.num_classes, pretrained=False)
-
-        checkpoint = torch.load(checkpoint_path, map_location=self.device)
-        state_dict = checkpoint.get("model_state_dict", checkpoint)
         self.model.load_state_dict(state_dict)
         self.model.to(self.device)
         self.model.eval()
@@ -116,13 +139,7 @@ class InferenceEngine:
         self.best_acc = checkpoint.get("best_acc", None)
         self.epoch = checkpoint.get("epoch", None)
 
-        # Standard inference transform
-        self.transform = transforms.Compose([
-            transforms.Resize(256),
-            transforms.CenterCrop(224),
-            transforms.ToTensor(),
-            transforms.Normalize(mean=IMAGENET_MEAN, std=IMAGENET_STD)
-        ])
+        self.transform = create_evaluation_transform()
 
     def predict(self, image: Image.Image, top_k: int = 5) -> Tuple[torch.Tensor, List[Dict]]:
         """
@@ -201,10 +218,29 @@ class InferenceEngine:
                 try:
                     with open(mapping_path, "r", encoding="utf-8") as f:
                         mdata = json.load(f)
-                    classes = list(mdata.get("id2label", {}).values())
-                    entry["num_classes"] = len(classes)
+                    raw_mapping = mdata.get("id2label", {})
+                    id2label = {int(index): label for index, label in raw_mapping.items()}
+                    if not id2label or sorted(id2label) != list(range(len(id2label))):
+                        raise ValueError("Class mapping indices are not contiguous from zero.")
+                    if len(set(id2label.values())) != len(id2label):
+                        raise ValueError("Class mapping contains duplicate labels.")
+                    label2id = mdata.get("label2id")
+                    if label2id is not None and {
+                        label: int(index) for label, index in label2id.items()
+                    } != {label: index for index, label in id2label.items()}:
+                        raise ValueError("Class mapping id2label and label2id entries disagree.")
 
                     ckpt = torch.load(ckpt_path, map_location="cpu")
+                    if ckpt.get("arch") not in (None, arch):
+                        raise ValueError("Checkpoint architecture does not match its filename.")
+                    state_dict = ckpt.get("model_state_dict", ckpt)
+                    classifier_weight = (
+                        "classifier.1.weight" if arch == "efficientnet_b0"
+                        else "classifier.3.weight"
+                    )
+                    if state_dict[classifier_weight].shape[0] != len(id2label):
+                        raise ValueError("Checkpoint output size does not match its class mapping.")
+                    entry["num_classes"] = len(id2label)
                     entry["best_acc"] = ckpt.get("best_acc")
                     entry["is_usable"] = True
                 except Exception as e:

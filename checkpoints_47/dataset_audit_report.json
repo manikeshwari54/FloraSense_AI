@@ -1,0 +1,406 @@
+{
+  "mode": "pre_split_directories",
+  "classes": [
+    "African Violet (Saintpaulia ionantha)",
+    "Aloe Vera",
+    "Anthurium (Anthurium andraeanum)",
+    "Areca Palm (Dypsis lutescens)",
+    "Asparagus Fern (Asparagus setaceus)",
+    "Begonia (Begonia spp.)",
+    "Bird of Paradise (Strelitzia reginae)",
+    "Birds Nest Fern (Asplenium nidus)",
+    "Boston Fern (Nephrolepis exaltata)",
+    "Calathea",
+    "Cast Iron Plant (Aspidistra elatior)",
+    "Chinese Money Plant (Pilea peperomioides)",
+    "Chinese evergreen (Aglaonema)",
+    "Christmas Cactus (Schlumbergera bridgesii)",
+    "Chrysanthemum",
+    "Ctenanthe",
+    "Daffodils (Narcissus spp.)",
+    "Dracaena",
+    "Dumb Cane (Dieffenbachia spp.)",
+    "Elephant Ear (Alocasia spp.)",
+    "English Ivy (Hedera helix)",
+    "Hyacinth (Hyacinthus orientalis)",
+    "Iron Cross begonia (Begonia masoniana)",
+    "Jade plant (Crassula ovata)",
+    "Kalanchoe",
+    "Lilium (Hemerocallis)",
+    "Lily of the valley (Convallaria majalis)",
+    "Money Tree (Pachira aquatica)",
+    "Monstera Deliciosa (Monstera deliciosa)",
+    "Orchid",
+    "Parlor Palm (Chamaedorea elegans)",
+    "Peace lily",
+    "Poinsettia (Euphorbia pulcherrima)",
+    "Polka Dot Plant (Hypoestes phyllostachya)",
+    "Ponytail Palm (Beaucarnea recurvata)",
+    "Pothos (Ivy arum)",
+    "Prayer Plant (Maranta leuconeura)",
+    "Rattlesnake Plant (Calathea lancifolia)",
+    "Rubber Plant (Ficus elastica)",
+    "Sago Palm (Cycas revoluta)",
+    "Schefflera",
+    "Snake plant (Sanseviera)",
+    "Tradescantia",
+    "Tulip",
+    "Venus Flytrap",
+    "Yucca",
+    "ZZ Plant (Zamioculcas zamiifolia)"
+  ],
+  "class_names": [
+    "African Violet (Saintpaulia ionantha)",
+    "Aloe Vera",
+    "Anthurium (Anthurium andraeanum)",
+    "Areca Palm (Dypsis lutescens)",
+    "Asparagus Fern (Asparagus setaceus)",
+    "Begonia (Begonia spp.)",
+    "Bird of Paradise (Strelitzia reginae)",
+    "Birds Nest Fern (Asplenium nidus)",
+    "Boston Fern (Nephrolepis exaltata)",
+    "Calathea",
+    "Cast Iron Plant (Aspidistra elatior)",
+    "Chinese Money Plant (Pilea peperomioides)",
+    "Chinese evergreen (Aglaonema)",
+    "Christmas Cactus (Schlumbergera bridgesii)",
+    "Chrysanthemum",
+    "Ctenanthe",
+    "Daffodils (Narcissus spp.)",
+    "Dracaena",
+    "Dumb Cane (Dieffenbachia spp.)",
+    "Elephant Ear (Alocasia spp.)",
+    "English Ivy (Hedera helix)",
+    "Hyacinth (Hyacinthus orientalis)",
+    "Iron Cross begonia (Begonia masoniana)",
+    "Jade plant (Crassula ovata)",
+    "Kalanchoe",
+    "Lilium (Hemerocallis)",
+    "Lily of the valley (Convallaria majalis)",
+    "Money Tree (Pachira aquatica)",
+    "Monstera Deliciosa (Monstera deliciosa)",
+    "Orchid",
+    "Parlor Palm (Chamaedorea elegans)",
+    "Peace lily",
+    "Poinsettia (Euphorbia pulcherrima)",
+    "Polka Dot Plant (Hypoestes phyllostachya)",
+    "Ponytail Palm (Beaucarnea recurvata)",
+    "Pothos (Ivy arum)",
+    "Prayer Plant (Maranta leuconeura)",
+    "Rattlesnake Plant (Calathea lancifolia)",
+    "Rubber Plant (Ficus elastica)",
+    "Sago Palm (Cycas revoluta)",
+    "Schefflera",
+    "Snake plant (Sanseviera)",
+    "Tradescantia",
+    "Tulip",
+    "Venus Flytrap",
+    "Yucca",
+    "ZZ Plant (Zamioculcas zamiifolia)"
+  ],
+  "total_classes": 47,
+  "train_count": 10394,
+  "val_count": 2198,
+  "test_count": 2198,
+  "total_images": 14790,
+  "class_counts": {
+    "African Violet (Saintpaulia ionantha)": 337,
+    "Aloe Vera": 252,
+    "Anthurium (Anthurium andraeanum)": 455,
+    "Areca Palm (Dypsis lutescens)": 189,
+    "Asparagus Fern (Asparagus setaceus)": 169,
+    "Begonia (Begonia spp.)": 236,
+    "Bird of Paradise (Strelitzia reginae)": 180,
+    "Birds Nest Fern (Asplenium nidus)": 290,
+    "Boston Fern (Nephrolepis exaltata)": 307,
+    "Calathea": 330,
+    "Cast Iron Plant (Aspidistra elatior)": 266,
+    "Chinese Money Plant (Pilea peperomioides)": 382,
+    "Chinese evergreen (Aglaonema)": 514,
+    "Christmas Cactus (Schlumbergera bridgesii)": 312,
+    "Chrysanthemum": 209,
+    "Ctenanthe": 347,
+    "Daffodils (Narcissus spp.)": 421,
+    "Dracaena": 261,
+    "Dumb Cane (Dieffenbachia spp.)": 541,
+    "Elephant Ear (Alocasia spp.)": 332,
+    "English Ivy (Hedera helix)": 240,
+    "Hyacinth (Hyacinthus orientalis)": 318,
+    "Iron Cross begonia (Begonia masoniana)": 266,
+    "Jade plant (Crassula ovata)": 353,
+    "Kalanchoe": 130,
+    "Lilium (Hemerocallis)": 480,
+    "Lily of the valley (Convallaria majalis)": 416,
+    "Money Tree (Pachira aquatica)": 359,
+    "Monstera Deliciosa (Monstera deliciosa)": 547,
+    "Orchid": 234,
+    "Parlor Palm (Chamaedorea elegans)": 329,
+    "Peace lily": 385,
+    "Poinsettia (Euphorbia pulcherrima)": 306,
+    "Polka Dot Plant (Hypoestes phyllostachya)": 341,
+    "Ponytail Palm (Beaucarnea recurvata)": 197,
+    "Pothos (Ivy arum)": 243,
+    "Prayer Plant (Maranta leuconeura)": 400,
+    "Rattlesnake Plant (Calathea lancifolia)": 316,
+    "Rubber Plant (Ficus elastica)": 291,
+    "Sago Palm (Cycas revoluta)": 202,
+    "Schefflera": 326,
+    "Snake plant (Sanseviera)": 396,
+    "Tradescantia": 341,
+    "Tulip": 341,
+    "Venus Flytrap": 199,
+    "Yucca": 66,
+    "ZZ Plant (Zamioculcas zamiifolia)": 438
+  },
+  "split_counts": {
+    "African Violet (Saintpaulia ionantha)": {
+      "train": 237,
+      "val": 50,
+      "test": 50
+    },
+    "Aloe Vera": {
+      "train": 178,
+      "val": 37,
+      "test": 37
+    },
+    "Anthurium (Anthurium andraeanum)": {
+      "train": 319,
+      "val": 68,
+      "test": 68
+    },
+    "Areca Palm (Dypsis lutescens)": {
+      "train": 133,
+      "val": 28,
+      "test": 28
+    },
+    "Asparagus Fern (Asparagus setaceus)": {
+      "train": 119,
+      "val": 25,
+      "test": 25
+    },
+    "Begonia (Begonia spp.)": {
+      "train": 166,
+      "val": 35,
+      "test": 35
+    },
+    "Bird of Paradise (Strelitzia reginae)": {
+      "train": 126,
+      "val": 27,
+      "test": 27
+    },
+    "Birds Nest Fern (Asplenium nidus)": {
+      "train": 204,
+      "val": 43,
+      "test": 43
+    },
+    "Boston Fern (Nephrolepis exaltata)": {
+      "train": 215,
+      "val": 46,
+      "test": 46
+    },
+    "Calathea": {
+      "train": 232,
+      "val": 49,
+      "test": 49
+    },
+    "Cast Iron Plant (Aspidistra elatior)": {
+      "train": 188,
+      "val": 39,
+      "test": 39
+    },
+    "Chinese Money Plant (Pilea peperomioides)": {
+      "train": 268,
+      "val": 57,
+      "test": 57
+    },
+    "Chinese evergreen (Aglaonema)": {
+      "train": 360,
+      "val": 77,
+      "test": 77
+    },
+    "Christmas Cactus (Schlumbergera bridgesii)": {
+      "train": 220,
+      "val": 46,
+      "test": 46
+    },
+    "Chrysanthemum": {
+      "train": 147,
+      "val": 31,
+      "test": 31
+    },
+    "Ctenanthe": {
+      "train": 243,
+      "val": 52,
+      "test": 52
+    },
+    "Daffodils (Narcissus spp.)": {
+      "train": 295,
+      "val": 63,
+      "test": 63
+    },
+    "Dracaena": {
+      "train": 183,
+      "val": 39,
+      "test": 39
+    },
+    "Dumb Cane (Dieffenbachia spp.)": {
+      "train": 379,
+      "val": 81,
+      "test": 81
+    },
+    "Elephant Ear (Alocasia spp.)": {
+      "train": 234,
+      "val": 49,
+      "test": 49
+    },
+    "English Ivy (Hedera helix)": {
+      "train": 168,
+      "val": 36,
+      "test": 36
+    },
+    "Hyacinth (Hyacinthus orientalis)": {
+      "train": 224,
+      "val": 47,
+      "test": 47
+    },
+    "Iron Cross begonia (Begonia masoniana)": {
+      "train": 188,
+      "val": 39,
+      "test": 39
+    },
+    "Jade plant (Crassula ovata)": {
+      "train": 249,
+      "val": 52,
+      "test": 52
+    },
+    "Kalanchoe": {
+      "train": 92,
+      "val": 19,
+      "test": 19
+    },
+    "Lilium (Hemerocallis)": {
+      "train": 336,
+      "val": 72,
+      "test": 72
+    },
+    "Lily of the valley (Convallaria majalis)": {
+      "train": 292,
+      "val": 62,
+      "test": 62
+    },
+    "Money Tree (Pachira aquatica)": {
+      "train": 253,
+      "val": 53,
+      "test": 53
+    },
+    "Monstera Deliciosa (Monstera deliciosa)": {
+      "train": 383,
+      "val": 82,
+      "test": 82
+    },
+    "Orchid": {
+      "train": 164,
+      "val": 35,
+      "test": 35
+    },
+    "Parlor Palm (Chamaedorea elegans)": {
+      "train": 231,
+      "val": 49,
+      "test": 49
+    },
+    "Peace lily": {
+      "train": 271,
+      "val": 57,
+      "test": 57
+    },
+    "Poinsettia (Euphorbia pulcherrima)": {
+      "train": 216,
+      "val": 45,
+      "test": 45
+    },
+    "Polka Dot Plant (Hypoestes phyllostachya)": {
+      "train": 239,
+      "val": 51,
+      "test": 51
+    },
+    "Ponytail Palm (Beaucarnea recurvata)": {
+      "train": 139,
+      "val": 29,
+      "test": 29
+    },
+    "Pothos (Ivy arum)": {
+      "train": 171,
+      "val": 36,
+      "test": 36
+    },
+    "Prayer Plant (Maranta leuconeura)": {
+      "train": 280,
+      "val": 60,
+      "test": 60
+    },
+    "Rattlesnake Plant (Calathea lancifolia)": {
+      "train": 222,
+      "val": 47,
+      "test": 47
+    },
+    "Rubber Plant (Ficus elastica)": {
+      "train": 205,
+      "val": 43,
+      "test": 43
+    },
+    "Sago Palm (Cycas revoluta)": {
+      "train": 142,
+      "val": 30,
+      "test": 30
+    },
+    "Schefflera": {
+      "train": 230,
+      "val": 48,
+      "test": 48
+    },
+    "Snake plant (Sanseviera)": {
+      "train": 278,
+      "val": 59,
+      "test": 59
+    },
+    "Tradescantia": {
+      "train": 239,
+      "val": 51,
+      "test": 51
+    },
+    "Tulip": {
+      "train": 239,
+      "val": 51,
+      "test": 51
+    },
+    "Venus Flytrap": {
+      "train": 141,
+      "val": 29,
+      "test": 29
+    },
+    "Yucca": {
+      "train": 48,
+      "val": 9,
+      "test": 9
+    },
+    "ZZ Plant (Zamioculcas zamiifolia)": {
+      "train": 308,
+      "val": 65,
+      "test": 65
+    }
+  },
+  "duplicates_detected": 0,
+  "invalid_files": [],
+  "invalid_file_count": 0,
+  "conflicting_duplicates": [],
+  "deficient_classes": {},
+  "coverage": {
+    "tulsi_present": false,
+    "neem_present": false,
+    "missing": [
+      "Tulsi (Holy Basil / Ocimum tenuiflorum)",
+      "Neem (Indian Lilac / Azadirachta indica)"
+    ],
+    "complete": false
+  }
+}

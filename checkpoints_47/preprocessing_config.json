@@ -1,0 +1,19 @@
+{
+  "input_size": [
+    224,
+    224
+  ],
+  "crop_size": 224,
+  "resize_size": 256,
+  "interpolation": "bilinear",
+  "mean": [
+    0.485,
+    0.456,
+    0.406
+  ],
+  "std": [
+    0.229,
+    0.224,
+    0.225
+  ]
+}

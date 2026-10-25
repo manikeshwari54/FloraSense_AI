@@ -1,19 +1,14 @@
-"""
-FloraSense AI — Indoor Plant Identification & Care Assistant
--------------------------------------------------------------
-Identifies 20 common indoor plant species using transfer learning CNNs.
-Dataset: kakasher/house-plant-species (CC BY 3.0, 14,790 images, 47 classes)
-"""
+"""Streamlit plant-identification interface for locally stored CNN checkpoints."""
 
 import io
 import json
 from html import escape
 from pathlib import Path
+import math
 import streamlit as st
-from PIL import Image
+from PIL import Image, UnidentifiedImageError
 
-from dataset import SPECIES_TAXONOMY
-from model import InferenceEngine, load_inference_engine
+from model import InferenceEngine, load_inference_engine, resolve_species_metadata
 from ood_detector import check_image_quality, calibrate_and_filter, load_thresholds
 from plant_data import get_plant_profile
 
@@ -31,27 +26,153 @@ if styles_path.exists():
 # ---------------------------------------------------------
 # Cached Model Loaders
 # ---------------------------------------------------------
-@st.cache_resource(show_spinner='Loading EfficientNet-B0...')
-def get_efficientnet_engine():
-    engine, err = load_inference_engine('./checkpoints', 'efficientnet_b0')
+@st.cache_resource(show_spinner="Loading model checkpoint...")
+def get_model_engine(checkpoint_dir, arch, signature):
+    engine, err = load_inference_engine(checkpoint_dir, arch)
     return engine, err
 
-@st.cache_resource(show_spinner='Loading MobileNetV3-Small...')
-def get_mobilenet_engine():
-    engine, err = load_inference_engine('./checkpoints', 'mobilenet_v3_small')
-    return engine, err
 
-PAGES = ("Home", "Identify Plant", "Plant Care", "Supported Plants", "Model Information", "About Project")
-CLASS_MAPPING_PATH = Path(__file__).with_name("checkpoints") / "class_mapping.json"
-if CLASS_MAPPING_PATH.exists():
-    with CLASS_MAPPING_PATH.open("r", encoding="utf-8") as mapping_file:
-        active_mapping = json.load(mapping_file).get("id2label", {})
-    SUPPORTED_CLASSES = [
-        active_mapping[key]
-        for key in sorted(active_mapping, key=int)
+PAGES = (
+    "Home",
+    "Identify Plant",
+    "Plant Care",
+    "Supported Plants",
+    "Model Performance",
+    "Model Information",
+    "About Project",
+)
+PROJECT_ROOT = Path(__file__).resolve().parent
+CHECKPOINT_DIRS = (
+    PROJECT_ROOT / "checkpoints_47",
+    PROJECT_ROOT / "checkpoints",
+)
+
+
+def checkpoint_signature(checkpoint_dir):
+    checkpoint_path = Path(checkpoint_dir)
+    candidates = [
+        checkpoint_path / "class_mapping.json",
+        checkpoint_path / "efficientnet_b0_best.pt",
+        checkpoint_path / "mobilenet_v3_small_best.pt",
+        checkpoint_path / "ood_thresholds.json",
+        checkpoint_path / "preprocessing_config.json",
+        checkpoint_path / "evaluation_report.json",
+        checkpoint_path / "training_metadata.json",
     ]
-else:
-    SUPPORTED_CLASSES = []
+    return tuple(
+        (
+            str(path),
+            path.stat().st_mtime_ns if path.exists() else None,
+            path.stat().st_size if path.exists() else None,
+        )
+        for path in candidates
+    )
+
+
+@st.cache_data(max_entries=8, show_spinner=False)
+def list_checkpoint_diagnostics(checkpoint_dir, signature):
+    return InferenceEngine.list_available(checkpoint_dir)
+
+
+@st.cache_data(max_entries=8, show_spinner=False)
+def read_json_file(file_path, signature):
+    with open(file_path, "r", encoding="utf-8") as json_file:
+        return json.load(json_file)
+
+
+def load_checkpoint_json(checkpoint_dir, filename):
+    file_path = Path(checkpoint_dir) / filename
+    if not file_path.is_file():
+        return None
+    stat = file_path.stat()
+    signature = (stat.st_mtime_ns, stat.st_size)
+    try:
+        return read_json_file(str(file_path), signature)
+    except (OSError, json.JSONDecodeError) as error:
+        st.warning(f"Saved artifact '{file_path.name}' could not be read: {error}")
+        return None
+
+
+def load_evaluation(checkpoint_dir, arch):
+    report = load_checkpoint_json(checkpoint_dir, "evaluation_report.json")
+    if (
+        report is None
+        and Path(checkpoint_dir).resolve() == (PROJECT_ROOT / "checkpoints").resolve()
+    ):
+        report = load_checkpoint_json(str(PROJECT_ROOT), "evaluation_report.json")
+    if not isinstance(report, dict):
+        return None
+    evaluation = report.get(arch)
+    if not isinstance(evaluation, dict) and report.get("arch") == arch:
+        evaluation = report
+    if not isinstance(evaluation, dict):
+        return None
+    report_classes = set(evaluation.get("dataset_report", {}).get("class_names", []))
+    if not report_classes:
+        report_classes = {
+            label
+            for label in evaluation.get("classification_report", {})
+            if label not in {"accuracy", "macro avg", "weighted avg"}
+        }
+    if report_classes and report_classes != set(load_class_names(checkpoint_dir)):
+        return None
+    return evaluation
+
+
+def display_architecture(arch):
+    return {
+        "efficientnet_b0": "EfficientNet-B0",
+        "mobilenet_v3_small": "MobileNetV3-Small",
+    }.get(arch, arch.replace("_", " ").title())
+
+
+def discover_model_options():
+    options = {}
+    for checkpoint_dir in CHECKPOINT_DIRS:
+        signature = checkpoint_signature(checkpoint_dir)
+        for entry in list_checkpoint_diagnostics(str(checkpoint_dir), signature):
+            if not entry["is_usable"]:
+                continue
+            arch = entry["arch"]
+            label = f"{display_architecture(arch)} · {entry['num_classes']} classes"
+            if label in options:
+                label = f"{label} · {checkpoint_dir.name}"
+            options[label] = {
+                "arch": arch,
+                "checkpoint_dir": str(checkpoint_dir),
+                "num_classes": entry["num_classes"],
+                "checkpoint_signature": signature,
+            }
+    return options
+
+
+def load_class_names(checkpoint_dir):
+    mapping_path = Path(checkpoint_dir) / "class_mapping.json"
+    with mapping_path.open("r", encoding="utf-8") as mapping_file:
+        raw_mapping = json.load(mapping_file).get("id2label", {})
+    labels = {int(index): label for index, label in raw_mapping.items()}
+    if not labels or sorted(labels) != list(range(len(labels))):
+        raise ValueError(f"Invalid class mapping in '{mapping_path}'.")
+    return [labels[index] for index in range(len(labels))]
+
+
+MODEL_OPTIONS = discover_model_options()
+MODEL_OPTION_LABELS = list(MODEL_OPTIONS)
+DEFAULT_MODEL_INDEX = next(
+    (
+        index for index, label in enumerate(MODEL_OPTION_LABELS)
+        if MODEL_OPTIONS[label]["checkpoint_dir"] == str(CHECKPOINT_DIRS[0])
+        and MODEL_OPTIONS[label]["arch"] == "efficientnet_b0"
+    ),
+    next(
+        (
+            index for index, label in enumerate(MODEL_OPTION_LABELS)
+            if MODEL_OPTIONS[label]["checkpoint_dir"] == str(CHECKPOINT_DIRS[1])
+            and MODEL_OPTIONS[label]["arch"] == "efficientnet_b0"
+        ),
+        0,
+    ),
+)
 
 
 def reset_identification():
@@ -174,6 +295,10 @@ def render_result(result):
     elif profile and result.get("status") == "certain":
         st.markdown("### Care profile")
         render_care_profile(profile)
+    elif result.get("status") == "uncertain":
+        st.info("No care profile is available for this unconfirmed candidate.")
+    else:
+        st.info("No care profile is available for this plant class.")
 
 
 with st.sidebar:
@@ -185,37 +310,87 @@ with st.sidebar:
     page = st.radio("Navigate", PAGES, key="navigation", label_visibility="collapsed")
     st.markdown("<div class='sidebar-rule'></div>", unsafe_allow_html=True)
     st.markdown("#### Inference settings")
-    model_choice = st.selectbox(
-        "Model architecture",
-        ["EfficientNet-B0 (Primary)", "MobileNetV3-Small (Lightweight)"],
-        index=0,
+    if MODEL_OPTION_LABELS:
+        model_choice = st.selectbox(
+            "Model checkpoint",
+            MODEL_OPTION_LABELS,
+            index=DEFAULT_MODEL_INDEX,
+            key="selected_checkpoint",
+        )
+        selected_model = MODEL_OPTIONS[model_choice]
+        checkpoint_dir = selected_model["checkpoint_dir"]
+        selected_arch = selected_model["arch"]
+        selected_signature = selected_model["checkpoint_signature"]
+        selected_classes = load_class_names(checkpoint_dir)
+        default_thresholds = load_thresholds(
+            str(Path(checkpoint_dir) / "ood_thresholds.json")
+        )
+        active_model_key = f"{checkpoint_dir}|{selected_arch}|{selected_signature}"
+        if st.session_state.get("active_model_key") != active_model_key:
+            st.session_state["last_result"] = None
+            st.session_state["active_model_key"] = active_model_key
+    else:
+        model_choice = None
+        selected_model = None
+        checkpoint_dir = str(CHECKPOINT_DIRS[0])
+        selected_arch = "efficientnet_b0"
+        selected_signature = checkpoint_signature(checkpoint_dir)
+        selected_classes = []
+        default_thresholds = load_thresholds(
+            str(CHECKPOINT_DIRS[0] / "ood_thresholds.json")
+        )
+        st.warning("No usable model checkpoints were found.")
+    SUPPORTED_CLASSES = selected_classes
+    model_widget_suffix = (
+        f"{Path(checkpoint_dir).name}_{selected_arch}_{selected_model['num_classes']}"
+        if selected_model else "unavailable"
     )
-    default_thresholds = load_thresholds("./checkpoints/ood_thresholds.json")
-    with st.expander("Uncertainty filtering", expanded=False):
-        enable_ood = st.checkbox("Enable OOD filtering", value=True)
+    with st.expander("Advanced settings", expanded=False):
+        enable_ood = st.checkbox(
+            "Enable OOD filtering",
+            value=True,
+            key=f"enable_ood_{model_widget_suffix}",
+        )
+        configured_energy = float(default_thresholds["energy_thresh"])
         energy_thresh = st.slider(
             "Energy threshold",
-            min_value=-40.0,
-            max_value=-5.0,
-            value=float(default_thresholds.get("energy_thresh", -25.0)),
-            step=1.0,
+            min_value=float(min(-40.0, math.floor(configured_energy - 10.0))),
+            max_value=float(max(-5.0, math.ceil(configured_energy + 10.0))),
+            value=configured_energy,
+            step=0.1,
+            key=f"energy_threshold_{model_widget_suffix}",
             help="Higher values demand stronger evidence before accepting a prediction as certain.",
         )
         conf_thresh = st.slider(
             "Confidence threshold",
-            min_value=0.10,
-            max_value=0.95,
-            value=float(default_thresholds.get("conf_thresh", 0.35)),
-            step=0.05,
+            min_value=0.0,
+            max_value=1.0,
+            value=float(default_thresholds["conf_thresh"]),
+            step=0.01,
+            key=f"confidence_threshold_{model_widget_suffix}",
             help="Minimum top-1 probability required to confirm a prediction.",
         )
-    with st.expander("Checkpoint diagnostics", expanded=False):
-        for checkpoint in InferenceEngine.list_available("./checkpoints"):
-            st.markdown(f"**{checkpoint['arch'].replace('_', ' ').title()}**")
-            if checkpoint["is_usable"]:
-                st.caption(f"Ready · {checkpoint['num_classes']} mapped classes")
-            else:
-                st.caption(checkpoint.get("error") or "Checkpoint unavailable")
+        margin_thresh = st.slider(
+            "Top-two margin threshold",
+            min_value=0.0,
+            max_value=1.0,
+            value=float(default_thresholds["margin_thresh"]),
+            step=0.01,
+            key=f"margin_threshold_{model_widget_suffix}",
+            help="Minimum probability gap required between the top two candidates.",
+        )
+        st.markdown("#### Checkpoint diagnostics")
+        for checkpoint_dir_path in CHECKPOINT_DIRS:
+            signature = checkpoint_signature(checkpoint_dir_path)
+            for checkpoint in list_checkpoint_diagnostics(str(checkpoint_dir_path), signature):
+                st.markdown(
+                    f"**{display_architecture(checkpoint['arch'])} · {checkpoint_dir_path.name}**"
+                )
+                if checkpoint["is_usable"]:
+                    st.caption(f"Ready · {checkpoint['num_classes']} mapped classes")
+                else:
+                    st.caption(checkpoint.get("error") or "Checkpoint unavailable")
+    temperature = float(default_thresholds["temperature"])
 
 st.markdown(
     f"<div class='page-kicker'>BOTANICAL RECOGNITION · LOCAL INFERENCE</div><h1 class='page-title'>{escape(page)}</h1>",
@@ -252,6 +427,36 @@ if page == "Home":
             with st.container(border=True):
                 st.markdown(f"<p class='card-index'>{number}</p><h3>{title}</h3><p>{copy}</p>", unsafe_allow_html=True)
     st.markdown("### In the current model")
+    evaluation = load_evaluation(checkpoint_dir, selected_arch)
+    evaluation_report = evaluation or {}
+    test_images = evaluation_report.get("dataset_report", {}).get("total_images")
+    if test_images is None:
+        test_images = (
+            evaluation_report.get("classification_report", {})
+            .get("weighted avg", {})
+            .get("support")
+        )
+    home_metrics = st.columns(4)
+    verified_stats = (
+        ("Mapped classes", len(SUPPORTED_CLASSES)),
+        (
+            "Held-out top-1",
+            f"{evaluation_report['top1_acc']:.2f}%"
+            if isinstance(evaluation_report.get("top1_acc"), (int, float))
+            else "Not available",
+        ),
+        (
+            "Held-out test images",
+            int(test_images) if isinstance(test_images, (int, float)) else "Not available",
+        ),
+        ("Care profiles", sum(bool(get_plant_profile(name)) for name in SUPPORTED_CLASSES)),
+    )
+    for column, (label, value) in zip(home_metrics, verified_stats):
+        with column:
+            with st.container(border=True):
+                st.metric(label, value)
+    if evaluation:
+        st.caption("Held-out top-1 is the saved offline evaluation score; it is not an individual prediction confidence.")
     preview_columns = st.columns(4)
     for column, name in zip(preview_columns, SUPPORTED_CLASSES[:4]):
         with column:
@@ -277,11 +482,16 @@ elif page == "Identify Plant":
                 try:
                     image = Image.open(io.BytesIO(uploaded_file.getvalue())).convert("RGB")
                     st.image(image, caption=f"{image.width} × {image.height} px", use_container_width=True)
-                except Exception as error:
+                except (UnidentifiedImageError, OSError, ValueError) as error:
                     st.error(f"This image could not be opened: {error}")
             identify_col, reset_col = st.columns(2)
             with identify_col:
-                run_classify = st.button("Identify", type="primary", use_container_width=True, disabled=image is None)
+                run_classify = st.button(
+                    "Identify",
+                    type="primary",
+                    use_container_width=True,
+                    disabled=image is None or selected_model is None,
+                )
             with reset_col:
                 st.button("Reset", on_click=reset_identification, use_container_width=True)
             st.caption("Best results usually come from a focused photo with leaves clearly visible.")
@@ -300,37 +510,34 @@ elif page == "Identify Plant":
                         "model_used": model_choice,
                     }
                 else:
-                    if "EfficientNet" in model_choice:
-                        engine, error = get_efficientnet_engine()
-                    else:
-                        engine, error = get_mobilenet_engine()
-                    if engine is None:
-                        st.error(
-                            f"Model checkpoint unavailable. {error}\n\n"
-                            "The existing model must be trained before this architecture can be used."
+                    try:
+                        engine, error = get_model_engine(
+                            checkpoint_dir, selected_arch, selected_signature
                         )
-                        st.session_state["last_result"] = None
-                    else:
-                        logits, predictions = engine.predict(image, top_k=5)
-                        if enable_ood:
+                        if engine is None:
+                            st.error(f"Model checkpoint unavailable: {error}")
+                            st.session_state["last_result"] = None
+                        else:
+                            logits, predictions = engine.predict(image, top_k=5)
                             decision = calibrate_and_filter(
                                 logits=logits,
                                 predictions=predictions,
-                                temperature=1.35,
+                                temperature=temperature,
                                 energy_thresh=energy_thresh,
                                 conf_thresh=conf_thresh,
-                                enable_ood=True,
+                                margin_thresh=margin_thresh,
+                                enable_ood=enable_ood,
                             )
                             status = decision.get("status", "uncertain")
                             predictions = decision.get("predictions", predictions)
-                        else:
-                            top_conf = predictions[0]["confidence"] if predictions else 0.0
-                            status = "certain" if top_conf >= conf_thresh else "uncertain"
-                        st.session_state["last_result"] = {
-                            "status": status,
-                            "predictions": predictions,
-                            "model_used": model_choice,
-                        }
+                            st.session_state["last_result"] = {
+                                "status": status,
+                                "predictions": predictions,
+                                "model_used": model_choice,
+                            }
+                    except (RuntimeError, OSError, ValueError, KeyError, TypeError) as error:
+                        st.error(f"Prediction failed: {error}")
+                        st.session_state["last_result"] = None
         with st.container(border=True):
             render_result(st.session_state.get("last_result"))
 
@@ -352,66 +559,183 @@ elif page == "Supported Plants":
         f"<p class='page-intro'>These are the {len(SUPPORTED_CLASSES)} labels in the active checkpoint mapping. No external plant photographs are embedded.</p>",
         unsafe_allow_html=True,
     )
-    columns = st.columns(3)
-    for start in range(0, len(SUPPORTED_CLASSES), 3):
+    plant_query = st.text_input("Search supported plants", placeholder="Search by common or scientific name")
+    filtered_classes = [
+        name for name in SUPPORTED_CLASSES
+        if plant_query.casefold() in name.casefold()
+        or plant_query.casefold() in resolve_species_metadata(name)[0].casefold()
+        or plant_query.casefold() in resolve_species_metadata(name)[1].casefold()
+    ]
+    st.caption(f"Showing {len(filtered_classes)} of {len(SUPPORTED_CLASSES)} mapped classes.")
+    if not filtered_classes:
+        st.info("No supported plants match this search.")
+    for start in range(0, len(filtered_classes), 3):
         columns = st.columns(3)
-        for column, name in zip(columns, SUPPORTED_CLASSES[start:start + 3]):
+        for column, name in zip(columns, filtered_classes[start:start + 3]):
+            scientific_name, common_name = resolve_species_metadata(name)
+            profile = get_plant_profile(name) or get_plant_profile(common_name) or {}
+            family = profile.get("family") or "Family information unavailable"
             index = SUPPORTED_CLASSES.index(name)
-            taxonomy = SPECIES_TAXONOMY.get(name, {})
-            profile = get_plant_profile(name) or {}
-            scientific_name = taxonomy.get("scientific_name") or profile.get("scientific_name") or "Scientific name unavailable"
-            family = taxonomy.get("family") or profile.get("family") or "Family information unavailable"
             with column:
                 with st.container(border=True):
                     st.markdown(
                         f"<div class='plant-placeholder'><span>{index + 1:02d}</span></div>"
-                        f"<h3>{escape(name)}</h3><p class='scientific-name'>{escape(scientific_name)}</p>"
+                        f"<h3>{escape(common_name)}</h3><p class='scientific-name'>{escape(scientific_name)}</p>"
                         f"<p class='family-label'>{escape(family)}</p>",
                         unsafe_allow_html=True,
                     )
 
+elif page == "Model Performance":
+    st.markdown(
+        "<p class='page-intro'>Saved offline evaluation for the selected checkpoint. "
+        "These measurements are separate from confidence scores shown for an individual photo.</p>",
+        unsafe_allow_html=True,
+    )
+    evaluation = load_evaluation(checkpoint_dir, selected_arch)
+    if not evaluation:
+        st.info("No matching saved test-set evaluation report is available for this checkpoint.")
+    else:
+        class_report = evaluation.get("classification_report", {})
+        dataset_report = evaluation.get("dataset_report", {})
+        test_count = dataset_report.get("total_images")
+        if test_count is None:
+            test_count = class_report.get("weighted avg", {}).get("support")
+        metric_values = [
+            ("Top-1 accuracy", evaluation.get("top1_acc")),
+            ("Top-3 accuracy", evaluation.get("top3_acc")),
+            ("Macro-F1", evaluation.get("macro_f1")),
+            (
+                "Weighted-F1",
+                evaluation.get("weighted_f1")
+                if isinstance(evaluation.get("weighted_f1"), (int, float))
+                else (
+                    class_report.get("weighted avg", {}).get("f1-score", 0) * 100
+                    if isinstance(class_report.get("weighted avg", {}).get("f1-score"), (int, float))
+                    else None
+                ),
+            ),
+            ("Test images", test_count),
+        ]
+        metric_columns = st.columns(len(metric_values))
+        for column, (label, value) in zip(metric_columns, metric_values):
+            with column:
+                if label == "Test images":
+                    display_value = int(value) if isinstance(value, (int, float)) else "Unavailable"
+                else:
+                    display_value = f"{value:.2f}%" if isinstance(value, (int, float)) else "Unavailable"
+                st.metric(label, display_value)
+        st.caption(
+            "Saved held-out test metrics are read from the evaluation report paired with this checkpoint. "
+            "They are not recalculated on app launch and must not be interpreted as confidence for a single prediction."
+        )
+
+        per_class_rows = []
+        for plant_name in selected_classes:
+            class_metrics = class_report.get(plant_name)
+            if not isinstance(class_metrics, dict):
+                continue
+            per_class_rows.append({
+                "Plant class": plant_name,
+                "Precision": round(class_metrics.get("precision", 0), 4),
+                "Recall": round(class_metrics.get("recall", 0), 4),
+                "F1": round(class_metrics.get("f1-score", 0), 4),
+                "Support": int(class_metrics.get("support", 0)),
+            })
+        st.markdown("### Per-class performance")
+        if per_class_rows:
+            st.dataframe(per_class_rows, use_container_width=True, hide_index=True)
+        else:
+            st.info("Per-class precision and recall are not present in this report.")
+
+        confusion = evaluation.get("confusion_matrix", {})
+        matrix = confusion.get("matrix") if isinstance(confusion, dict) else None
+        confusion_labels = confusion.get("labels", []) if isinstance(confusion, dict) else []
+        valid_matrix = (
+            isinstance(matrix, list)
+            and confusion_labels == selected_classes
+            and len(matrix) == len(selected_classes)
+            and all(isinstance(row, list) and len(row) == len(selected_classes) for row in matrix)
+        )
+        st.markdown("### Confusion matrix")
+        confusion_image = Path(checkpoint_dir) / f"{selected_arch}_confusion_matrix.png"
+        if confusion_image.is_file():
+            st.image(str(confusion_image), caption="Saved confusion matrix from the selected checkpoint's held-out test evaluation.")
+        elif valid_matrix:
+            with st.expander("View confusion matrix values"):
+                st.dataframe(
+                    [
+                        {"Actual class": label, **{
+                            f"Predicted: {predicted}": count
+                            for predicted, count in zip(selected_classes, row)
+                        }}
+                        for label, row in zip(selected_classes, matrix)
+                    ],
+                    use_container_width=True,
+                    hide_index=True,
+                )
+        else:
+            st.info("A class-aligned confusion matrix is not available for this checkpoint.")
+
 elif page == "Model Information":
-    st.markdown("<p class='page-intro'>The default classifier is the trained EfficientNet-B0 checkpoint. Scores below are existing evaluation results, not a new evaluation.</p>", unsafe_allow_html=True)
+    st.markdown(
+        "<p class='page-intro'>Checkpoint, preprocessing, and training details for the active model.</p>",
+        unsafe_allow_html=True,
+    )
+    diagnostics = list_checkpoint_diagnostics(checkpoint_dir, selected_signature)
     checkpoint_info = next(
-        (entry for entry in InferenceEngine.list_available("./checkpoints") if entry["arch"] == "efficientnet_b0"),
+        (entry for entry in diagnostics if entry["arch"] == selected_arch),
         None,
     )
     if checkpoint_info and checkpoint_info["is_usable"]:
-        st.success(f"EfficientNet-B0 checkpoint is available with {checkpoint_info['num_classes']} mapped classes.")
+        st.success(
+            f"{display_architecture(selected_arch)} is ready with "
+            f"{checkpoint_info['num_classes']} mapped classes."
+        )
+        st.write(f"Checkpoint directory: `{Path(checkpoint_dir).name}`")
+        st.write(f"Output labels: **{len(selected_classes)}** (from the matching `class_mapping.json`).")
     else:
-        st.warning("The EfficientNet-B0 checkpoint is not currently available.")
+        st.warning(
+            checkpoint_info.get("error", "The selected model checkpoint is not currently available.")
+            if checkpoint_info else "No matching model entry was found."
+        )
 
-    report_path = Path(__file__).with_name("evaluation_report.json")
-    evaluation = None
-    if report_path.exists():
-        try:
-            with report_path.open("r", encoding="utf-8") as report_file:
-                evaluation = json.load(report_file).get("efficientnet_b0")
-        except (OSError, json.JSONDecodeError):
-            evaluation = None
-    if evaluation:
-        metric_columns = st.columns(3)
-        metrics = [
-            ("Top-1 accuracy", evaluation.get("top1_acc")),
-            ("Macro-F1", evaluation.get("macro_f1")),
-            ("Held-out test images", evaluation.get("classification_report", {}).get("macro avg", {}).get("support")),
-        ]
-        for column, (label, value) in zip(metric_columns, metrics):
-            with column:
-                with st.container(border=True):
-                    if label == "Held-out test images" and value is not None:
-                        display_value = int(value)
-                    elif value is not None:
-                        display_value = f"{value}%"
-                    else:
-                        display_value = "Unavailable"
-                    st.metric(label, display_value)
-        st.caption("Recorded results: 81.88% top-1 accuracy and 81.49% macro-F1 on 977 held-out test images. These aggregate results do not guarantee accuracy for any individual species.")
+    preprocessing = load_checkpoint_json(checkpoint_dir, "preprocessing_config.json")
+    metadata = load_checkpoint_json(checkpoint_dir, "training_metadata.json")
+    st.markdown("### Inference workflow")
+    st.write(
+        "RGB upload → image-quality screen → checkpoint-matched resize/crop/normalization "
+        "→ CNN scores → existing energy, confidence, and top-two-margin filtering."
+    )
+    if preprocessing:
+        st.markdown("### Preprocessing configuration")
+        st.json(preprocessing)
     else:
-        st.info("No verified EfficientNet-B0 evaluation record is available in evaluation_report.json.")
-    st.markdown("#### Inference pipeline")
-    st.markdown("Image quality screening → selected CNN checkpoint → existing confidence/OOD handling → ranked class candidates.")
-    st.caption("The inference pipeline and checkpoint settings are unchanged by this UI update.")
+        st.info("No checkpoint-specific preprocessing configuration was found.")
+    if metadata:
+        st.markdown("### Training metadata")
+        metadata_summary = {
+            key: metadata[key]
+            for key in (
+                "arch", "num_classes", "train_samples", "validation_samples",
+                "test_samples", "warmup_epochs", "finetune_epochs",
+                "best_acc", "is_demo_run", "test_used_for_model_selection",
+                "test_used_for_ood_calibration",
+            )
+            if key in metadata
+        }
+        st.json(metadata_summary)
+    else:
+        st.info("No training metadata was found for this checkpoint.")
+    st.markdown("### Limitations")
+    st.write(
+        "This classifier only ranks labels in the selected mapping. It may be wrong for "
+        "unsupported species, unusual views, or images unlike the training data. Confidence "
+        "is not a guarantee, and care notes are references rather than diagnosis."
+    )
+    st.caption(
+        "Checkpoint diagnostics, mappings, preprocessing, and OOD thresholds remain paired "
+        "with their respective model folders. Unavailable checkpoints are not offered for selection."
+    )
 
 elif page == "About Project":
     st.markdown("<p class='page-intro'>A local college-project demonstration combining image classification with a curated indoor-plant care reference.</p>", unsafe_allow_html=True)
@@ -429,5 +753,5 @@ elif page == "About Project":
             st.write("Streamlit · Python · PyTorch · Torchvision · EfficientNet-B0 · Pillow")
         with st.container(border=True):
             st.markdown("### Limitations")
-            st.write("The active model maps 19 classes. Image labels and dataset coverage may be imperfect. The application does not diagnose disease, and confidence is not a guarantee. Use pet-safety information as a reference and verify important decisions with qualified sources.")
+            st.write(f"The selected checkpoint maps {len(SUPPORTED_CLASSES)} classes. Image labels and dataset coverage may be imperfect. The application does not diagnose disease, and confidence is not a guarantee. Use pet-safety information as a reference and verify important decisions with qualified sources.")
     st.caption("This demonstration runs image inference locally and does not send uploaded photos to an external service.")
