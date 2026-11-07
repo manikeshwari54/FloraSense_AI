@@ -27,9 +27,11 @@ The interface is suitable for students, project reviewers, and indoor-plant owne
 
 ### Current UI features
 
-The root Streamlit app has Home, Identify Plant, Plant Care, Supported Plants, Model Performance, Model Information, and About Project sections. The Home view reports facts from the selected model mapping and matching evaluation report when available. The identification view accepts JPG/JPEG, PNG, and WebP files, shows a preview, returns a primary candidate and top alternatives, retains uncertainty handling, and can display matching care notes. Supported Plants can be searched by mapped, common, or scientific name. Model Performance presents the selected checkpoint's saved offline evaluation report, per-class precision/recall, and confusion matrix when the matching artifacts are available. Model Information shows the paired preprocessing and training metadata.
+The sidebar exposes six destinations: Home, Identify Plant, Plant Care, Supported Plants, Model Performance, and About Project. Renderer branches for Plant Comparison and Model Information remain in `app.py`, but are not linked from the current sidebar. The Home view reports facts from the selected model mapping and matching evaluation report when available. The Identify Plant view uses a vertical layout, with Plant Photograph above full-width Identification Results. It accepts JPG/JPEG, PNG, and WebP files, shows a compact preview, returns a primary candidate and top alternatives, retains uncertainty handling, and can display matching care notes. Supported Plants can be searched by mapped, common, or scientific name. Model Performance presents the selected checkpoint's saved offline evaluation report, per-class precision/recall, and confusion matrix when the matching artifacts are available.
 
-EfficientNet-B0 · 47 classes is the default; the original EfficientNet-B0 · 19 classes remains available as a fallback. Checkpoints are shown only when their architecture output and class mapping pass the loader's compatibility checks. The currently incompatible MobileNetV3-Small file remains on disk for diagnostics but is not offered in the normal selector. Dataset directories are retained for training and evaluation but are not read for normal inference.
+The upload preview is centered and limited to 420 px wide and 380 px high, with rounded corners and `object-fit: contain`; the original pixel dimensions appear below it. This constrains only the displayed preview. The decoded RGB image passed to inference is not resized by the UI; the existing inference preprocessing performs its configured resize and crop.
+
+EfficientNet-B0 · 47 classes is the default; the original EfficientNet-B0 · 19 classes remains available as a fallback. Checkpoints are shown only when their architecture output and class mapping pass the loader's compatibility checks. The currently incompatible MobileNetV3-Small file remains on disk, but is not exposed in the user-facing selector; compatibility checks remain internal. Dataset directories are retained for training and evaluation but are not read for normal inference.
 
 ### Active model labels
 
@@ -159,13 +161,13 @@ FloraSense-AI (1)/                  Active project root
 
 ### Active, optional, and unverified paths
 
-The active demonstration is the root `app.py` with EfficientNet-B0 · 47 classes by default and EfficientNet-B0 · 19 classes as a selectable fallback. The legacy MobileNetV3-Small checkpoint fails its output-size/class-mapping compatibility check; MobileNet options are excluded from the normal selector but remain visible in Advanced Settings diagnostics. A MobileNet 47-class checkpoint is unavailable. The root `train.py` is a Transformers ViT trainer, distinct from `train_models.py`. The root `evaluate.py` imports `PlantClassifier`, which is not defined in the root `model.py`; its compatibility with the root project is therefore not verified and it is expected to fail at import unless the appropriate alternate model implementation is used.
+The active demonstration is the root `app.py` with EfficientNet-B0 · 47 classes by default and EfficientNet-B0 · 19 classes as a selectable fallback. The legacy MobileNetV3-Small checkpoint fails its output-size/class-mapping compatibility check and is not exposed in the sidebar. A MobileNet 47-class checkpoint is unavailable. The root `train.py` is a Transformers ViT trainer, distinct from `train_models.py`. The root `evaluate.py` imports `PlantClassifier`, which is not defined in the root `model.py`; its compatibility with the root project is therefore not verified and it is expected to fail at import unless the appropriate alternate model implementation is used.
 
 ### Streamlit presentation and model selection
 
 - The interface uses the existing local CSS, with the Streamlit theme in `.streamlit/config.toml`: warm cream surfaces, forest-green controls/headings, sage panels, restrained coral accents, serif headings, and responsive spacing. No font or external UI asset is downloaded.
-- The model selector offers concise names (`EfficientNet-B0 · 47 classes` and `EfficientNet-B0 · 19 classes`). The 47-class checkpoint is the default. The class list, output dimensions, and care lookup use the currently selected mapping rather than a fixed class count.
-- Checkpoint diagnostics and OOD sliders are inside **Advanced settings**. Energy, confidence, margin, and temperature values load from the selected checkpoint's OOD configuration. Widget state is separated by checkpoint, and a model switch clears any result produced using the previous mapping.
+- The user-facing model selector offers the compatible EfficientNet-B0 checkpoints (`EfficientNet-B0 · 47 classes` and `EfficientNet-B0 · 19 classes`); the 47-class checkpoint is the default. The class list, output dimensions, and care lookup use the currently selected mapping rather than a fixed class count.
+- **Advanced settings** contains one checkbox, **Enable image uncertainty filtering**. It controls whether OOD filtering is enabled; energy, confidence, margin, and temperature thresholds load internally from the selected checkpoint configuration and cannot be adjusted in the sidebar. Checkpoint diagnostics are not shown in the user-facing UI. A model switch clears any result produced using the previous mapping.
 - Model engines are cached as Streamlit resources and keyed by checkpoint identity/signature; checkpoint diagnostics and JSON artifacts are cached with their file signatures. This avoids repeated loads in ordinary reruns while allowing a changed checkpoint artifact to be reloaded.
 - **Model Performance** reads saved, checkpoint-matched evaluation data only. The 47-class report and confusion-matrix image are under `checkpoints_47/`. The 19-class report is at the project root; it is used only with the 19-class mapping after its reported class labels are checked against that mapping. Missing or mismatched report data is not presented as metrics for the selected model.
 - The 47-class dashboard reports 76.84% top-1, 90.99% top-3, 76.21% macro-F1, and 76.73% weighted-F1 on 2,198 held-out test images. The legacy 19-class dashboard uses its saved report for 977 test images. These are offline test metrics, not confidence values for a user's uploaded image.
@@ -221,9 +223,11 @@ flowchart TD
     D --> Q[Stop; no prediction displayed]
 ```
 
-The exact thresholds can be changed in the sidebar. When OOD is on, `calibrate_and_filter` marks a result uncertain if its energy is below the threshold or if confidence/margin checks fail. When OOD is off, the Streamlit path only checks the top prediction's confidence. The separate OOD helper also supports an `unsuitable` decision for an empty candidate list, but the UI's image-quality failure is handled before model inference.
+The preview displays portrait, landscape, and square images without cropping or stretching, and its maximum width adapts to the available container width. Its dimensions caption reports the uploaded image's original pixel size.
 
-Each selected checkpoint uses its own `ood_thresholds.json` values for energy, confidence, margin, and temperature. The sliders initialize from those values; the temperature is also read from the selected configuration. A new model's thresholds are calibrated from its validation data only after reloading the best validation checkpoint. These heuristic thresholds are not a guarantee of calibrated confidence or OOD detection.
+The sidebar does not expose threshold sliders. When OOD filtering is enabled, `calibrate_and_filter` marks a result uncertain if its energy is below the configured threshold or if confidence/margin checks fail. When filtering is disabled, the Streamlit path still checks the top prediction's confidence against the selected checkpoint's configured confidence threshold. The separate OOD helper also supports an `unsuitable` decision for an empty candidate list, but the UI's image-quality failure is handled before model inference.
+
+Each selected checkpoint uses its own `ood_thresholds.json` values for energy, confidence, margin, and temperature. Those values are loaded internally; the single sidebar checkbox only enables or disables the OOD decision path. A new model's thresholds are calibrated from its validation data only after reloading the best validation checkpoint. These heuristic thresholds are not a guarantee of calibrated confidence or OOD detection.
 
 ## 7. Machine-Learning Model
 
@@ -455,7 +459,7 @@ The root `evaluate.py` is a separate ViT evaluator that imports `PlantClassifier
 | `tests/test_plant_data.py` | Care profile lookups, toxic/safe text, separation of Snake Plant/Rattlesnake Plant, profile coverage |
 | `tests/conftest.py` | Textured synthetic image fixture and checkpoint directory fixture |
 
-The expanded suite includes archive class discovery, shared labels, duplicate exclusion, 47-output checkpoint compatibility, prediction labels, and OOD threshold calibration. The full suite passed with **46 tests** during the UI redesign validation. The 47-class inference smoke check also loaded the production checkpoint, emitted 47 logits, and returned three labels from the mapped taxonomy; this confirms basic loading and output shape, not classification accuracy. The browser check confirmed the 47-class default, both EfficientNet options, searchable class filtering, model-specific saved metrics, and the incompatible MobileNet diagnostic. Some tests use generated images for code-path checks; these are not training images or model-accuracy evidence.
+The expanded suite includes archive class discovery, shared labels, duplicate exclusion, 47-output checkpoint compatibility, prediction labels, and OOD threshold calibration. The full suite passed with **46 tests** during the sidebar update. A Streamlit smoke test served the app on port 8502 and returned HTTP 200; port 8501 was already occupied. This confirms server reachability, not browser-level assertions about navigation or widget behavior. Some tests use generated images for code-path checks; these are not training images or model-accuracy evidence.
 
 ## 12. Setup and Execution Guide
 
@@ -546,8 +550,8 @@ The interactive API description is normally at `http://127.0.0.1:8000/docs`. Thi
 
 - The Streamlit interface loads the model locally and describes uploads as local processing; it does not send images to a cloud inference API.
 - `st.cache_resource` caches the selected model engine; the cache key includes checkpoint signature inputs. Checkpoint availability scans and JSON artifacts are also cached against file signatures.
-- Inference uses the selected checkpoint's paired mapping, preprocessing configuration, and OOD thresholds. Switching checkpoints clears stale prediction state and uses checkpoint-specific OOD widget keys.
-- The 47-class EfficientNet is the default. Only the compatible 19-class EfficientNet is selectable as fallback; incompatible MobileNet files are diagnostics-only and are not deleted.
+- Inference uses the selected checkpoint's paired mapping, preprocessing configuration, and OOD thresholds. Switching checkpoints clears stale prediction state and keeps the uncertainty checkbox state separate by checkpoint.
+- The 47-class EfficientNet is the default. Only the compatible 19-class EfficientNet is selectable as fallback; incompatible MobileNet files remain on disk but are not exposed in the user-facing sidebar.
 - Evaluation results shown in the app are loaded from the saved report paired with the selected mapping. They are not recomputed on app startup and are labeled separately from live per-image confidence.
 - Local datasets are retained for retraining/evaluation and are not required by the inference-only Streamlit path. No model weights, source datasets, or evaluation artifacts were changed in this redesign.
 - `class_mapping.json` is required next to CNN weights to prevent index/label mismatch.
@@ -618,7 +622,7 @@ FloraSense AI is a local Streamlit demonstration that screens an uploaded plant 
 16. **Was the full archive license verified?** No. The dataset card states personal use only despite a conflicting CC BY badge. Resolve rights before redistribution or non-personal use.
 17. **Does the care database diagnose plant disease?** No. It displays species-level reference care and safety text only.
 18. **Can the application identify any plant?** No. It is limited to the selected checkpoint's mapped classes; unseen plants may be marked uncertain if filtering is enabled.
-19. **Is MobileNet part of the app?** Its files remain available for diagnostics, but the current 19-class MobileNet checkpoint fails its output-size/class-mapping compatibility check and is therefore excluded from model selection.
+19. **Is MobileNet part of the app?** Its files remain on disk, but the current 19-class MobileNet checkpoint fails its output-size/class-mapping compatibility check and is not exposed in the user-facing selector.
 20. **What is not fully verified?** Exact training hyperparameters for the installed checkpoint, complete image rights, label correctness, same-source split independence, GBIF staging completeness, and the root ViT evaluation path.
 
 ## 16. Glossary and References

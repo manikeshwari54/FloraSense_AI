@@ -36,11 +36,29 @@ PAGES = (
     "Home",
     "Identify Plant",
     "Plant Care",
+    "Plant Comparison",
     "Supported Plants",
     "Model Performance",
     "Model Information",
     "About Project",
 )
+SIDEBAR_PAGE_LABELS = [
+    "🏠 Home",
+    "🔎 Identify Plant",
+    "🪴 Plant Care",
+    "📚 Supported Plants",
+    "📊 Model Performance",
+    "ℹ️ About Project",
+]
+SIDEBAR_PAGE_LOOKUP = {label: key for label, key in zip(SIDEBAR_PAGE_LABELS, (
+    "Home",
+    "Identify Plant",
+    "Plant Care",
+    "Supported Plants",
+    "Model Performance",
+    "About Project",
+))}
+SIDEBAR_PAGE_LABEL_BY_KEY = {page: label for label, page in SIDEBAR_PAGE_LOOKUP.items()}
 PROJECT_ROOT = Path(__file__).resolve().parent
 CHECKPOINT_DIRS = (
     PROJECT_ROOT / "checkpoints_47",
@@ -157,7 +175,10 @@ def load_class_names(checkpoint_dir):
 
 
 MODEL_OPTIONS = discover_model_options()
-MODEL_OPTION_LABELS = list(MODEL_OPTIONS)
+MODEL_OPTION_LABELS = [
+    label for label in MODEL_OPTIONS
+    if "MobileNet" not in label and "mobilenet" not in label.lower()
+]
 DEFAULT_MODEL_INDEX = next(
     (
         index for index, label in enumerate(MODEL_OPTION_LABELS)
@@ -181,7 +202,7 @@ def reset_identification():
 
 
 def navigate_to_identification():
-    st.session_state["navigation"] = "Identify Plant"
+    st.session_state["navigation"] = SIDEBAR_PAGE_LABEL_BY_KEY["Identify Plant"]
 
 
 def show_profile_field(profile, key, label):
@@ -252,40 +273,44 @@ def render_result(result):
     predictions = result.get("predictions", [])
     if result.get("status") == "unsuitable":
         st.error(result.get("message", "This image could not be processed."))
+        st.info("Please upload a sharp, well-lit image that is at least 50×50 pixels and clearly shows the plant leaves or foliage.")
         return
     if not predictions:
         st.info("No prediction is available for this image.")
         return
 
     top_prediction = predictions[0]
-    if result.get("status") == "uncertain":
-        st.warning("Identification is uncertain. Treat these as unconfirmed candidates, not a confirmed result.")
-        st.markdown(
-            f"## {escape(top_prediction.get('common_name', 'Unconfirmed candidate'))}"
-            f"\n\n<p class='scientific-name'>{escape(top_prediction.get('scientific_name', ''))}</p>",
-            unsafe_allow_html=True,
-        )
-    else:
-        with st.container(border=True):
-            st.markdown(f"## {escape(top_prediction.get('common_name', 'Plant identified'))}")
-            st.markdown(
-                f"<p class='scientific-name'>{escape(top_prediction.get('scientific_name', ''))}</p>",
-                unsafe_allow_html=True,
-            )
-            st.metric("Model confidence", f"{top_prediction.get('score_pct', 0)}%")
-            st.caption("Confidence is the model's score, not a guarantee of identification accuracy.")
+    common_name = top_prediction.get("common_name", "Unconfirmed candidate")
+    scientific_name = top_prediction.get("scientific_name", "")
+    profile = get_plant_profile(common_name) or get_plant_profile(scientific_name) or {}
+    description = profile.get("description") or "No short description is currently available for this species in the local care database."
+    confidence = float(top_prediction.get("confidence", 0.0))
+    score_pct = float(top_prediction.get("score_pct", confidence * 100.0))
+
+    with st.container(border=True):
+        st.markdown(f"## {escape(common_name)}")
+        st.markdown(f"<p class='scientific-name'>{escape(scientific_name)}</p>", unsafe_allow_html=True)
+        if description:
+            st.write(description)
+        st.progress(confidence)
+        st.caption(f"Model confidence: {score_pct:.2f}%")
+        if result.get("status") == "uncertain":
+            st.warning("Uncertainty warning: this prediction is not confirmed. Treat it as a tentative candidate only.")
+        else:
+            st.success("Prediction appears sufficiently confident for the selected model and current OOD settings.")
 
     if len(predictions) > 1:
-        st.markdown("#### Alternative candidates" if result.get("status") != "uncertain" else "#### Unconfirmed candidates")
-        for prediction in predictions[1:3] if result.get("status") != "uncertain" else predictions[:3]:
-            label_col, score_col = st.columns([4, 1])
-            with label_col:
-                st.write(f"**{prediction.get('common_name', 'Unknown')}**")
-                st.caption(prediction.get("scientific_name", ""))
-            with score_col:
-                st.write(f"{prediction.get('score_pct', 0)}%")
+        st.markdown("#### Top three predictions" if result.get("status") != "uncertain" else "#### Top unconfirmed candidates")
+        for index, prediction in enumerate(predictions[:3], 1):
+            prediction_common = prediction.get("common_name", "Unknown")
+            prediction_scientific = prediction.get("scientific_name", "")
+            prediction_conf = float(prediction.get("confidence", 0.0))
+            prediction_pct = float(prediction.get("score_pct", prediction_conf * 100.0))
+            st.markdown(f"**{index}. {prediction_common}**")
+            st.caption(prediction_scientific)
+            st.progress(prediction_conf)
+            st.caption(f"{prediction_pct:.2f}%")
 
-    profile = get_plant_profile(top_prediction.get("common_name", ""))
     if profile and result.get("status") == "uncertain":
         with st.expander("Care reference for this unconfirmed candidate"):
             st.info("The identification is unconfirmed. Use this profile as a reference only.")
@@ -304,12 +329,23 @@ def render_result(result):
 with st.sidebar:
     st.markdown(
         "<div class='sidebar-brand'><span class='brand-mark'>F</span>"
-        "<span><strong>FloraSense</strong><small>Plant intelligence</small></span></div>",
+        "<span><strong>FloraSense AI</strong><small>Plant intelligence</small></span></div>",
         unsafe_allow_html=True,
     )
-    page = st.radio("Navigate", PAGES, key="navigation", label_visibility="collapsed")
+    current_page = st.session_state.get("navigation")
+    if current_page not in SIDEBAR_PAGE_LABELS:
+        st.session_state["navigation"] = SIDEBAR_PAGE_LABEL_BY_KEY.get(
+            current_page, SIDEBAR_PAGE_LABELS[0]
+        )
+    page = st.radio(
+        "Navigate",
+        SIDEBAR_PAGE_LABELS,
+        key="navigation",
+        label_visibility="collapsed",
+    )
+    page = SIDEBAR_PAGE_LOOKUP[page]
     st.markdown("<div class='sidebar-rule'></div>", unsafe_allow_html=True)
-    st.markdown("#### Inference settings")
+    st.markdown("#### Model")
     if MODEL_OPTION_LABELS:
         model_choice = st.selectbox(
             "Model checkpoint",
@@ -339,7 +375,6 @@ with st.sidebar:
         default_thresholds = load_thresholds(
             str(CHECKPOINT_DIRS[0] / "ood_thresholds.json")
         )
-        st.warning("No usable model checkpoints were found.")
     SUPPORTED_CLASSES = selected_classes
     model_widget_suffix = (
         f"{Path(checkpoint_dir).name}_{selected_arch}_{selected_model['num_classes']}"
@@ -347,50 +382,15 @@ with st.sidebar:
     )
     with st.expander("Advanced settings", expanded=False):
         enable_ood = st.checkbox(
-            "Enable OOD filtering",
+            "Enable image uncertainty filtering",
             value=True,
             key=f"enable_ood_{model_widget_suffix}",
+            help="Keep uncertainty filtering enabled to reject low-confidence or out-of-distribution predictions.",
         )
-        configured_energy = float(default_thresholds["energy_thresh"])
-        energy_thresh = st.slider(
-            "Energy threshold",
-            min_value=float(min(-40.0, math.floor(configured_energy - 10.0))),
-            max_value=float(max(-5.0, math.ceil(configured_energy + 10.0))),
-            value=configured_energy,
-            step=0.1,
-            key=f"energy_threshold_{model_widget_suffix}",
-            help="Higher values demand stronger evidence before accepting a prediction as certain.",
-        )
-        conf_thresh = st.slider(
-            "Confidence threshold",
-            min_value=0.0,
-            max_value=1.0,
-            value=float(default_thresholds["conf_thresh"]),
-            step=0.01,
-            key=f"confidence_threshold_{model_widget_suffix}",
-            help="Minimum top-1 probability required to confirm a prediction.",
-        )
-        margin_thresh = st.slider(
-            "Top-two margin threshold",
-            min_value=0.0,
-            max_value=1.0,
-            value=float(default_thresholds["margin_thresh"]),
-            step=0.01,
-            key=f"margin_threshold_{model_widget_suffix}",
-            help="Minimum probability gap required between the top two candidates.",
-        )
-        st.markdown("#### Checkpoint diagnostics")
-        for checkpoint_dir_path in CHECKPOINT_DIRS:
-            signature = checkpoint_signature(checkpoint_dir_path)
-            for checkpoint in list_checkpoint_diagnostics(str(checkpoint_dir_path), signature):
-                st.markdown(
-                    f"**{display_architecture(checkpoint['arch'])} · {checkpoint_dir_path.name}**"
-                )
-                if checkpoint["is_usable"]:
-                    st.caption(f"Ready · {checkpoint['num_classes']} mapped classes")
-                else:
-                    st.caption(checkpoint.get("error") or "Checkpoint unavailable")
     temperature = float(default_thresholds["temperature"])
+    conf_thresh = float(default_thresholds["conf_thresh"])
+    margin_thresh = float(default_thresholds["margin_thresh"])
+    energy_thresh = float(default_thresholds["energy_thresh"])
 
 st.markdown(
     f"<div class='page-kicker'>BOTANICAL RECOGNITION · LOCAL INFERENCE</div><h1 class='page-title'>{escape(page)}</h1>",
@@ -467,8 +467,7 @@ elif page == "Identify Plant":
     st.markdown("<p class='page-intro'>Add a clear image of one plant. The photo is processed locally by the selected checkpoint.</p>", unsafe_allow_html=True)
     if "upload_generation" not in st.session_state:
         st.session_state["upload_generation"] = 0
-    upload_col, result_col = st.columns([1, 1.1], gap="large")
-    with upload_col:
+    with st.container():
         with st.container(border=True):
             st.markdown("### Plant photograph")
             uploaded_file = st.file_uploader(
@@ -481,7 +480,13 @@ elif page == "Identify Plant":
             if uploaded_file:
                 try:
                     image = Image.open(io.BytesIO(uploaded_file.getvalue())).convert("RGB")
-                    st.image(image, caption=f"{image.width} × {image.height} px", use_container_width=True)
+                    with st.container(key="plant_image_preview"):
+                        st.image(
+                            image,
+                            width=420,
+                            alt="Uploaded plant image preview",
+                        )
+                        st.caption(f"{image.width} × {image.height} px")
                 except (UnidentifiedImageError, OSError, ValueError) as error:
                     st.error(f"This image could not be opened: {error}")
             identify_col, reset_col = st.columns(2)
@@ -496,51 +501,84 @@ elif page == "Identify Plant":
                 st.button("Reset", on_click=reset_identification, use_container_width=True)
             st.caption("Best results usually come from a focused photo with leaves clearly visible.")
 
-    with result_col:
-        st.markdown("### Identification")
+    with st.container():
+        st.markdown(
+            "<h2 class='identify-results-heading'>Identification Results</h2>",
+            unsafe_allow_html=True,
+        )
         if run_classify and image is not None:
-            with st.spinner("Checking image quality and running the selected model…"):
-                is_valid_quality, quality_err = check_image_quality(image)
-                if not is_valid_quality:
-                    st.session_state["last_result"] = {
-                        "status": "unsuitable",
-                        "reason": "image_quality_failed",
-                        "message": quality_err,
-                        "predictions": [],
-                        "model_used": model_choice,
-                    }
-                else:
-                    try:
-                        engine, error = get_model_engine(
-                            checkpoint_dir, selected_arch, selected_signature
-                        )
-                        if engine is None:
-                            st.error(f"Model checkpoint unavailable: {error}")
-                            st.session_state["last_result"] = None
-                        else:
-                            logits, predictions = engine.predict(image, top_k=5)
-                            decision = calibrate_and_filter(
-                                logits=logits,
-                                predictions=predictions,
-                                temperature=temperature,
-                                energy_thresh=energy_thresh,
-                                conf_thresh=conf_thresh,
-                                margin_thresh=margin_thresh,
-                                enable_ood=enable_ood,
+                with st.spinner("Checking image quality and running the selected model…"):
+                    is_valid_quality, quality_err = check_image_quality(image)
+                    if not is_valid_quality:
+                        st.session_state["last_result"] = {
+                            "status": "unsuitable",
+                            "reason": "image_quality_failed",
+                            "message": quality_err,
+                            "predictions": [],
+                            "model_used": model_choice,
+                            "image": image,
+                        }
+                    else:
+                        try:
+                            engine, error = get_model_engine(
+                                checkpoint_dir, selected_arch, selected_signature
                             )
-                            status = decision.get("status", "uncertain")
-                            predictions = decision.get("predictions", predictions)
-                            st.session_state["last_result"] = {
-                                "status": status,
-                                "predictions": predictions,
-                                "model_used": model_choice,
-                            }
-                    except (RuntimeError, OSError, ValueError, KeyError, TypeError) as error:
-                        st.error(f"Prediction failed: {error}")
-                        st.session_state["last_result"] = None
+                            if engine is None:
+                                st.error(f"Model checkpoint unavailable: {error}")
+                                st.session_state["last_result"] = None
+                            else:
+                                logits, predictions = engine.predict(image, top_k=5)
+                                decision = calibrate_and_filter(
+                                    logits=logits,
+                                    predictions=predictions,
+                                    temperature=temperature,
+                                    energy_thresh=energy_thresh,
+                                    conf_thresh=conf_thresh,
+                                    margin_thresh=margin_thresh,
+                                    enable_ood=enable_ood,
+                                )
+                                status = decision.get("status", "uncertain")
+                                predictions = decision.get("predictions", predictions)
+                                st.session_state["last_result"] = {
+                                    "status": status,
+                                    "predictions": predictions,
+                                    "model_used": model_choice,
+                                    "image": image,
+                                }
+                        except (RuntimeError, OSError, ValueError, KeyError, TypeError) as error:
+                            st.error(f"Prediction failed: {error}")
+                            st.session_state["last_result"] = None
         with st.container(border=True):
             render_result(st.session_state.get("last_result"))
 
+elif page == "Plant Comparison":
+    st.markdown("<p class='page-intro'>Compare two supported plants with the local care metadata already used by the app.</p>", unsafe_allow_html=True)
+    comparison_plants = SUPPORTED_CLASSES
+    if not comparison_plants:
+        st.info("No supported plants are available for comparison in the active model mapping.")
+    else:
+        left_col, right_col = st.columns(2)
+        with left_col:
+            plant_one = st.selectbox("Plant A", comparison_plants, index=0, key="compare_plant_one")
+        with right_col:
+            remaining_plants = [name for name in comparison_plants if name != plant_one]
+            plant_two = st.selectbox("Plant B", remaining_plants or comparison_plants, index=0, key="compare_plant_two")
+        profile_one = get_plant_profile(plant_one) or {}
+        profile_two = get_plant_profile(plant_two) or {}
+        summary_rows = [
+            ["Appearance", profile_one.get("description", "Not available"), profile_two.get("description", "Not available")],
+            ["Sunlight", profile_one.get("sunlight", "Not available"), profile_two.get("sunlight", "Not available")],
+            ["Watering", profile_one.get("water", "Not available"), profile_two.get("water", "Not available")],
+            ["Soil", profile_one.get("soil", "Not available"), profile_two.get("soil", "Not available")],
+            ["Maintenance", profile_one.get("maintenance", "Not available"), profile_two.get("maintenance", "Not available")],
+            ["Temperature & humidity", profile_one.get("temperature_humidity", "Not available"), profile_two.get("temperature_humidity", "Not available")],
+            ["Pet safety", profile_one.get("toxicity_safety", "Not available"), profile_two.get("toxicity_safety", "Not available")],
+        ]
+        st.dataframe(
+            [{"Category": row[0], plant_one: row[1], plant_two: row[2]} for row in summary_rows],
+            use_container_width=True,
+            hide_index=True,
+        )
 elif page == "Plant Care":
     st.markdown("<p class='page-intro'>Care notes come from the project’s existing botanical database. Missing fields are shown as unavailable.</p>", unsafe_allow_html=True)
     care_classes = [name for name in SUPPORTED_CLASSES if get_plant_profile(name)]
@@ -616,17 +654,24 @@ elif page == "Model Performance":
             ),
             ("Test images", test_count),
         ]
+        if isinstance(evaluation.get("false_rejection_rate_pct"), (int, float)):
+            metric_values.append(("False rejection", evaluation.get("false_rejection_rate_pct")))
+        if isinstance(evaluation.get("false_acceptance_rate_pct"), (int, float)):
+            metric_values.append(("False acceptance", evaluation.get("false_acceptance_rate_pct")))
         metric_columns = st.columns(len(metric_values))
         for column, (label, value) in zip(metric_columns, metric_values):
             with column:
-                if label == "Test images":
-                    display_value = int(value) if isinstance(value, (int, float)) else "Unavailable"
+                if label in {"Test images", "False rejection", "False acceptance"}:
+                    display_value = f"{float(value):.2f}%" if isinstance(value, (int, float)) else "Unavailable"
+                    if label == "Test images":
+                        display_value = int(value) if isinstance(value, (int, float)) else "Unavailable"
+                    st.metric(label, display_value)
                 else:
                     display_value = f"{value:.2f}%" if isinstance(value, (int, float)) else "Unavailable"
-                st.metric(label, display_value)
+                    st.metric(label, display_value)
         st.caption(
             "Saved held-out test metrics are read from the evaluation report paired with this checkpoint. "
-            "They are not recalculated on app launch and must not be interpreted as confidence for a single prediction."
+            "Only values actually measured in the report are shown here; they are not live prediction confidences."
         )
 
         per_class_rows = []
@@ -643,6 +688,10 @@ elif page == "Model Performance":
             })
         st.markdown("### Per-class performance")
         if per_class_rows:
+            weak_classes = [row for row in per_class_rows if row.get("F1", 1.0) < 0.7]
+            if weak_classes:
+                st.warning("Weak-performing classes flagged below 0.70 F1 in the saved report:")
+                st.dataframe(weak_classes, use_container_width=True, hide_index=True)
             st.dataframe(per_class_rows, use_container_width=True, hide_index=True)
         else:
             st.info("Per-class precision and recall are not present in this report.")

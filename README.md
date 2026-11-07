@@ -6,10 +6,11 @@ The original `checkpoints/` model still maps **19 plant classes** and remains un
 
 ## Features
 
-- Streamlit UI for image identification, searchable supported classes, checkpoint-specific model performance, and plant-care references.
+- Streamlit sidebar navigation for Home, Identify Plant, Plant Care, Supported Plants, Model Performance, and About Project, plus searchable supported classes, checkpoint-specific performance, and local care references. Plant Comparison and Model Information renderer branches remain in code but are not currently exposed in the sidebar.
+- Identify Plant uses a vertical flow with Plant Photograph above full-width Identification Results. Its centered preview is limited to 420 px wide and 380 px high, preserves the image aspect ratio, and shows the original pixel dimensions below it. These are display-only constraints; inference receives the original decoded image.
 - EfficientNet-B0 · 47 classes is the default model; the original EfficientNet-B0 · 19 classes remains selectable as a fallback. Labels and class counts come from the selected checkpoint mapping.
-- Unavailable or incompatible checkpoints remain on disk for diagnostics but are excluded from normal model selection.
-- Image-quality screening and optional confidence/OOD-based uncertainty handling.
+- The user-facing model selector excludes unavailable or incompatible checkpoints; the incompatible MobileNet checkpoint remains on disk but is not shown in the sidebar.
+- Image-quality screening and a single Advanced settings checkbox to enable or disable uncertainty/OOD filtering. Threshold values continue to load from the selected checkpoint configuration and are not user-adjustable in the sidebar.
 - A local plant-care catalog. Care profiles are independent of model classes; unavailable species return a clear fallback instead of unrelated guidance.
 - Optional FastAPI service, training and evaluation scripts, dataset utilities, and pytest tests.
 

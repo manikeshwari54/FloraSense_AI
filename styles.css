@@ -99,20 +99,53 @@
   background: #d2ddd1;
 }
 
+[data-testid="stSidebar"] .stSelectbox,
+[data-testid="stSidebar"] .stExpander {
+  margin-top: 0.15rem;
+}
+
+[data-testid="stSidebar"] details {
+  border: 1px solid #d4dfd4;
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.28);
+}
+
+[data-testid="stSidebar"] details summary {
+  padding: 0.7rem 0.8rem;
+  border-radius: 10px;
+  color: var(--forest-deep);
+  font-weight: 600;
+}
+
+[data-testid="stSidebar"] details .streamlit-expanderContent {
+  padding: 0 0.8rem 0.8rem;
+}
+
 [data-testid="stSidebar"] [role="radiogroup"] {
-  gap: 0.18rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
 }
 
 [data-testid="stSidebar"] [role="radiogroup"] label {
-  min-height: 2.45rem;
-  padding: 0.15rem 0.55rem;
-  border-radius: 7px;
+  min-height: 2.55rem;
+  padding: 0.5rem 0.7rem;
+  border: 1px solid transparent;
+  border-radius: 10px;
   color: var(--forest);
-  font-size: 0.9rem;
+  font-size: 0.91rem;
+  transition: all 0.15s ease;
+}
+
+[data-testid="stSidebar"] [role="radiogroup"] label:hover {
+  border-color: rgba(41, 75, 54, 0.18);
+  background: rgba(255, 255, 255, 0.2);
 }
 
 [data-testid="stSidebar"] [role="radiogroup"] label:has(input:checked) {
-  background: #dce7dc;
+  background: linear-gradient(135deg, rgba(216, 230, 214, 0.95), rgba(237, 244, 234, 0.92));
+  border-color: rgba(36, 69, 48, 0.2);
+  box-shadow: inset 0 0 0 1px rgba(36, 69, 48, 0.08);
   font-weight: 650;
 }
 
@@ -166,6 +199,64 @@
   color: var(--muted);
   font-size: 0.98rem;
   line-height: 1.55;
+}
+
+.identify-results-heading {
+  margin: 1.2rem 0 0.75rem;
+  color: var(--forest-deep);
+  font-family: Georgia, "Times New Roman", serif;
+  font-size: 1.55rem;
+  font-weight: 500;
+}
+
+.st-key-plant_image_preview {
+  display: flex;
+  width: 100%;
+  flex-direction: column;
+  align-items: center;
+}
+
+.st-key-plant_image_preview [data-testid="stImage"] {
+  display: flex;
+  width: 100%;
+  justify-content: center;
+}
+
+.st-key-plant_image_preview [data-testid="stImage"] img {
+  display: block;
+  width: auto !important;
+  max-width: min(100%, 420px) !important;
+  height: auto !important;
+  max-height: 380px !important;
+  object-fit: contain;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+}
+
+.st-key-plant_image_preview [data-testid="stCaptionContainer"] {
+  width: 100%;
+  margin-top: 0.35rem;
+  color: var(--muted);
+  font-size: 0.78rem;
+  text-align: center;
+}
+
+[data-testid="stProgressBar"] > div {
+  background: linear-gradient(90deg, var(--forest) 0%, var(--sage) 100%);
+}
+
+.prediction-panel {
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  background: rgba(255, 255, 255, 0.45);
+  padding: 1rem 1.1rem;
+}
+
+.result-summary {
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  background: linear-gradient(135deg, rgba(232, 241, 228, 0.7), rgba(255, 255, 255, 0.8));
+  padding: 1rem 1.1rem;
 }
 
 .welcome-panel {
